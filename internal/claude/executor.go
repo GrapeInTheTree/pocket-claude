@@ -18,6 +18,7 @@ import (
 type SessionInfo struct {
 	ID        string    `json:"id"`
 	FirstMsg  string    `json:"first_msg"`
+	Name      string    `json:"name,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
@@ -33,6 +34,7 @@ type Executor struct {
 
 	mu               sync.Mutex
 	currentSessionID string // explicit session ID — never uses --continue
+	sessionName      string // display name for current session, passed via --name
 	model            string
 	sessions         []SessionInfo
 }
@@ -73,11 +75,15 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 	e.mu.Lock()
 	sessionID := e.currentSessionID
 	model := e.model
+	name := e.sessionName
 	e.mu.Unlock()
 
 	// Always use --resume with explicit session ID (never --continue)
 	if sessionID != "" {
 		args = append(args, "--resume", sessionID)
+	}
+	if name != "" {
+		args = append(args, "--name", name)
 	}
 
 	if skipPermissions {
@@ -189,6 +195,26 @@ func (e *Executor) GetSessions() []SessionInfo {
 	result := make([]SessionInfo, len(e.sessions))
 	copy(result, e.sessions)
 	return result
+}
+
+func (e *Executor) SetSessionName(name string) {
+	e.mu.Lock()
+	e.sessionName = name
+	// Update the session list too
+	for i := range e.sessions {
+		if e.sessions[i].ID == e.currentSessionID {
+			e.sessions[i].Name = name
+			break
+		}
+	}
+	e.mu.Unlock()
+	e.logger.Info("Session renamed", "name", name)
+}
+
+func (e *Executor) GetCurrentSessionID() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.currentSessionID
 }
 
 func (e *Executor) SetModel(model string) {

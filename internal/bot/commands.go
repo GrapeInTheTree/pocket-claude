@@ -20,6 +20,8 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.cmdBtw(msg)
 	case "resume":
 		b.cmdResume(msg.CommandArguments())
+	case "name":
+		b.cmdName(msg.CommandArguments())
 	case "model":
 		b.cmdModel(msg.CommandArguments())
 	case "cancel":
@@ -39,6 +41,7 @@ func (b *Bot) cmdHelp() {
 	text := "🤖 *Cowork Telegram Bot*\n\n" +
 		"*Session:*\n" +
 		"/new — Start a new conversation\n" +
+		"/name `<text>` — Rename current session\n" +
 		"/resume — Resume a previous session\n" +
 		"/btw `<note>` — Add context without processing\n" +
 		"/model `<name>` — Switch model (sonnet, opus, haiku)\n" +
@@ -138,7 +141,11 @@ func (b *Bot) cmdResume(args string) {
 		} else {
 			ageStr = fmt.Sprintf("%dh", int(age.Hours()))
 		}
-		label := fmt.Sprintf("#%d %s (%s)", num, worker.Truncate(s.FirstMsg, 30), ageStr)
+		displayName := s.FirstMsg
+		if s.Name != "" {
+			displayName = s.Name
+		}
+		label := fmt.Sprintf("#%d %s (%s)", num, worker.Truncate(displayName, 30), ageStr)
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(label, "resume:"+s.ID),
 		))
@@ -148,6 +155,26 @@ func (b *Bot) cmdResume(args string) {
 	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, "📋 Select a session to resume:")
 	msg.ReplyMarkup = keyboard
 	b.api.Send(msg)
+}
+
+func (b *Bot) cmdName(args string) {
+	if b.worker == nil {
+		return
+	}
+
+	name := strings.TrimSpace(args)
+	if name == "" {
+		b.sendMessage("Usage: /name <session name>\nExample: /name autoresearch 조사")
+		return
+	}
+
+	if b.worker.GetCurrentSessionID() == "" {
+		b.sendMessage("No active session. Send a message first!")
+		return
+	}
+
+	b.worker.SetSessionName(name)
+	b.sendMessage(fmt.Sprintf("✏️ Session renamed to \"%s\"", name))
 }
 
 func (b *Bot) cmdModel(args string) {

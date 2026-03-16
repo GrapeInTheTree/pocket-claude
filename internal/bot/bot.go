@@ -209,12 +209,16 @@ func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
 			b.worker.ResumeSession(value)
 		}
 
-		// Find session first message for display
+		// Find session display name
 		label := value[:12]
 		if b.worker != nil {
 			for _, s := range b.worker.GetSessions() {
 				if s.ID == value {
-					label = s.FirstMsg
+					if s.Name != "" {
+						label = s.Name
+					} else {
+						label = s.FirstMsg
+					}
 					break
 				}
 			}

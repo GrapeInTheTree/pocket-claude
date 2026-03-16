@@ -335,11 +335,13 @@ func (w *Worker) Stop() {
 
 // --- Delegated methods ---
 
-func (w *Worker) ResetSession()                { w.claude.ResetSession() }
-func (w *Worker) SetModel(model string)        { w.claude.SetModel(model) }
-func (w *Worker) GetModel() string             { return w.claude.GetModel() }
-func (w *Worker) GetSessions() []claude.SessionInfo { return w.claude.GetSessions() }
-func (w *Worker) ResumeSession(id string)      { w.claude.SetResumeID(id) }
+func (w *Worker) ResetSession()                     { w.claude.ResetSession() }
+func (w *Worker) SetModel(model string)              { w.claude.SetModel(model) }
+func (w *Worker) GetModel() string                   { return w.claude.GetModel() }
+func (w *Worker) GetSessions() []claude.SessionInfo  { return w.claude.GetSessions() }
+func (w *Worker) ResumeSession(id string)            { w.claude.SetResumeID(id) }
+func (w *Worker) SetSessionName(name string)         { w.claude.SetSessionName(name) }
+func (w *Worker) GetCurrentSessionID() string        { return w.claude.GetCurrentSessionID() }
 
 // --- helpers ---
 
