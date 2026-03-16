@@ -2,9 +2,9 @@
 
 ## 개요
 
-Claude Cowork와 텔레그램을 연결하는 파일 기반 브릿지 봇.
-맥북에서 실행 중인 Claude Cowork에게 텔레그램으로 작업을 지시하고
-결과를 텔레그램으로 받아볼 수 있다.
+Claude Code CLI와 텔레그램을 연결하는 AI 비서 봇.
+텔레그램으로 메시지를 보내면 `claude -p` CLI를 즉시 호출하여
+Claude가 처리한 결과를 텔레그램으로 받아볼 수 있다.
 
 ## 아키텍처
 
@@ -14,10 +14,9 @@ Claude Cowork와 텔레그램을 연결하는 파일 기반 브릿지 봇.
 텔레그램 서버 (HTTPS Long Polling)
     ↕
 Go 봇 (맥북 로컬 실행)
-    ↕ 파일 읽기/쓰기 + Lock
-inbox.json / outbox.json
-    ↕ 1분마다 폴링
-Claude Cowork Scheduled Task
+    ├→ inbox.json 기록 (pending)
+    ├→ Worker → claude -p (CLI subprocess, 즉시 실행)
+    └→ 결과 텔레그램 전송 + outbox.json 기록 (audit)
 ```
 
 ## 파일 구조
@@ -27,7 +26,9 @@ claude-cowork-telegram/
 ├── main.go          # 엔트리포인트, 설정, 로거, graceful shutdown
 ├── model.go         # 데이터 타입 및 상태 상수
 ├── store.go         # JSON 파일 I/O, Mutex, Lock 파일 관리
-├── bot.go           # 텔레그램 핸들러, 커맨드, 워커 goroutine
+├── bot.go           # 텔레그램 핸들러, 커맨드, outbox 폴러
+├── claude.go        # Claude CLI executor (subprocess 관리)
+├── worker.go        # 메시지 처리 워커 (큐, dedup, recovery)
 ├── go.mod
 ├── go.sum
 ├── .env             # 환경변수 (git 제외)
@@ -94,7 +95,7 @@ Cowork 실행 시작
 ### 사전 요구사항
 
 - Go 1.21+
-- Claude Desktop (Cowork 포함)
+- Claude Code CLI (`claude` 명령어)
 - 텔레그램 계정
 
 ### 설치
@@ -121,6 +122,14 @@ LOCK_TIMEOUT_MINUTES=5
 MAX_RETRY_COUNT=3
 OUTBOX_POLL_INTERVAL_SECONDS=10
 LOG_FILE=./bot.log
+
+# Claude CLI
+CLAUDE_CLI_PATH=claude
+CLAUDE_WORK_DIR=.
+CLAUDE_TIMEOUT_SECONDS=120
+CLAUDE_SYSTEM_PROMPT=
+CLAUDE_MODEL=
+WORKER_QUEUE_SIZE=100
 ```
 
 ### 실행
@@ -149,12 +158,15 @@ go build -o cowork-bot
 | `/clear` | done/sent 처리된 메시지 정리 |
 | `/retry` | error 상태 메시지 강제 재시도 |
 
-## Cowork 스케줄 태스크 설정
+## 처리 방식
 
-- **이름**: cowork-bridge-inbox
-- **주기**: 1분마다 (`*/1 * * * *`)
-- **폴더**: `/Users/<username>/claude-cowork-telegram`
-- **동작**: inbox.json polling → 작업 수행 → outbox.json 기록
+메시지 도착 즉시 `claude -p` CLI를 subprocess로 호출하여 처리.
+Cowork 스케줄 불필요. outbox.json은 audit trail + fallback용으로 유지.
+
+```
+메시지 도착 → inbox (pending) → Worker → claude -p → 텔레그램 직접 전송
+                                                    + outbox (sent, 기록용)
+```
 
 ## 보안
 
@@ -164,7 +176,8 @@ go build -o cowork-bot
 
 ## 한계 및 주의사항
 
-- 맥북과 Claude Desktop이 켜져 있어야 동작
-- 응답 시간: 최대 1분 (Cowork 스케줄 주기)
+- 맥북에서 Go 봇이 실행 중이어야 동작
+- Claude Code CLI가 설치되어 있어야 함
+- 응답 시간: 수초~수분 (Claude 처리 시간에 따라 다름, 타임아웃 기본 120초)
 - 절전 모드 시 동작 중단 → 시스템 환경설정에서 절전 비활성화 권장
-- Cowork usage를 소비하므로 Pro/Max 플랜 사용량 모니터링 권장
+- Claude Plan usage를 소비하므로 Pro/Max 플랜 사용량 모니터링 권장

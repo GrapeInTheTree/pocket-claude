@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0] - 2026-03-16
+
+### Added
+- Claude Code CLI 연동 (`claude -p` subprocess 호출)
+- Worker 패턴: 메시지 큐 + 단일 goroutine 순차 처리
+- claude.go: CLI executor (타임아웃, 모델 선택, 시스템 프롬프트 지원)
+- worker.go: 큐 관리, in-flight dedup (sync.Map), pending poll, stale recovery
+- 텔레그램 직접 전송 + outbox audit trail
+- 봇 시작 시 "processing" 상태 메시지 자동 복구
+- 환경변수: CLAUDE_CLI_PATH, CLAUDE_WORK_DIR, CLAUDE_TIMEOUT_SECONDS, CLAUDE_SYSTEM_PROMPT, CLAUDE_MODEL, WORKER_QUEUE_SIZE
+
+### Changed
+- Cowork 1분 스케줄 → 메시지 도착 즉시 CLI 호출 (응답 수초)
+- 결과 전송: outbox 폴링 대기 → 텔레그램 직접 전송 (실패 시 outbox fallback)
+
 ## [0.3.0] - 2026-03-16
 
 ### Fixed

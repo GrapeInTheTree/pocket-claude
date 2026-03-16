@@ -61,6 +61,12 @@ func (s *Store) releaseLock() {
 
 // --- Inbox ---
 
+func (s *Store) ReadInbox() (InboxFile, error) {
+	s.inboxMu.Lock()
+	defer s.inboxMu.Unlock()
+	return s.readInbox()
+}
+
 func (s *Store) readInbox() (InboxFile, error) {
 	var mf InboxFile
 	data, err := os.ReadFile(s.inboxPath)

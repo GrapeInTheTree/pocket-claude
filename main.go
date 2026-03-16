@@ -23,6 +23,14 @@ type Config struct {
 	MaxRetryCount         int
 	OutboxPollIntervalSec int
 	LogFile               string
+
+	// Claude CLI
+	CLIPath         string
+	CLIWorkDir      string
+	CLITimeoutSec   int
+	CLISystemPrompt string
+	CLIModel        string
+	WorkerQueueSize int
 }
 
 func main() {
@@ -44,6 +52,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Claude CLI executor + worker
+	claude := NewClaudeExecutor(cfg, logger)
+	worker := NewWorker(cfg.WorkerQueueSize, claude, store, bot.sendMessage, logger)
+	bot.SetWorker(worker)
+
+	// Recover interrupted messages from previous run
+	if n := worker.RecoverStale(); n > 0 {
+		logger.Info("Recovered stale messages", "count", n)
+	}
+
+	go worker.Start(ctx)
+	go worker.PollPending(ctx, 30*time.Second)
 	go bot.PollOutbox(ctx)
 	go bot.ProcessRetries(ctx)
 	go bot.Listen(ctx)
@@ -55,6 +75,7 @@ func main() {
 	logger.Info("Received signal, shutting down", "signal", sig)
 	cancel()
 	bot.Shutdown()
+	worker.Stop()
 	logger.Info("Bot stopped gracefully")
 }
 
@@ -71,6 +92,13 @@ func loadConfig() Config {
 		MaxRetryCount:         envIntOrDefault("MAX_RETRY_COUNT", 3),
 		OutboxPollIntervalSec: envIntOrDefault("OUTBOX_POLL_INTERVAL_SECONDS", 10),
 		LogFile:               envOrDefault("LOG_FILE", "./bot.log"),
+
+		CLIPath:         envOrDefault("CLAUDE_CLI_PATH", "claude"),
+		CLIWorkDir:      envOrDefault("CLAUDE_WORK_DIR", "."),
+		CLITimeoutSec:   envIntOrDefault("CLAUDE_TIMEOUT_SECONDS", 120),
+		CLISystemPrompt: os.Getenv("CLAUDE_SYSTEM_PROMPT"),
+		CLIModel:        os.Getenv("CLAUDE_MODEL"),
+		WorkerQueueSize: envIntOrDefault("WORKER_QUEUE_SIZE", 100),
 	}
 
 	chatIDStr := mustEnv("TELEGRAM_CHAT_ID")

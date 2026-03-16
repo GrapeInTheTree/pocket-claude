@@ -4,50 +4,60 @@
 
 ## 프로젝트 개요
 
-Claude Cowork와 텔레그램을 연결하는 파일 기반 브릿지 봇 (Go).
-맥북 로컬에서 실행되며, 텔레그램 메시지를 inbox.json에 기록하고
-Cowork가 처리한 결과를 outbox.json에서 읽어 텔레그램으로 전송한다.
+텔레그램 메시지를 받아 Claude Code CLI로 즉시 처리하고 결과를 텔레그램으로 전송하는 Go 봇.
+맥북 로컬에서 실행되며, Claude Cowork 스케줄 없이 메시지 도착 즉시 `claude -p`를 호출한다.
 
 ## 아키텍처
 
 ```
-텔레그램 ↔ Go 봇 ↔ inbox.json / outbox.json ↔ Claude Cowork (1분 스케줄)
+텔레그램 → Go 봇 → inbox.json (pending)
+                 → Worker → claude -p (CLI subprocess)
+                          → 텔레그램 직접 전송 + outbox.json (audit)
 ```
 
-- **inbox.json**: 텔레그램 → Cowork 방향. 봇이 쓰고 Cowork가 읽는다.
-- **outbox.json**: Cowork → 텔레그램 방향. Cowork가 쓰고 봇이 읽는다.
-- **inbox.lock**: 동시 접근 방지. Go sync.Mutex(프로세스 내) + lock file(프로세스 간).
+- **Worker**: 메시지 큐에서 하나씩 꺼내 `claude -p`로 처리. 단일 goroutine으로 순차 실행.
+- **PollPending**: 30초마다 inbox에서 pending 메시지 확인 (retry/recovery fallback).
+- **PollOutbox**: outbox.json에서 done 메시지 전송 (레거시 Cowork 호환 + fallback).
 
 ## 파일 구조
 
 | 파일 | 역할 |
 |---|---|
-| `main.go` | 엔트리포인트, Config, 로거, graceful shutdown |
+| `main.go` | 엔트리포인트, Config, 로거, graceful shutdown, 전체 와이어링 |
 | `model.go` | 데이터 타입 (InboxMessage, OutboxMessage) 및 상태 상수 |
 | `store.go` | JSON 파일 I/O, Mutex, lock file 메커니즘 |
-| `bot.go` | 텔레그램 핸들러, 커맨드 (/status, /clear, /retry), outbox 폴러 |
+| `bot.go` | 텔레그램 핸들러, 커맨드, outbox 폴러, retry 프로세서 |
+| `claude.go` | Claude CLI executor (subprocess 관리, 타임아웃) |
+| `worker.go` | 메시지 처리 워커 (큐, dedup, pending poll, stale recovery) |
 
 ## 빌드 및 실행
 
 ```bash
 go build ./...     # 빌드
-go run .           # 실행 (멀티파일이므로 go run main.go 아닌 go run .)
+go run .           # 실행
 ```
 
 ## 주요 설계 결정
 
-### outbox 전용 전송
-- 텔레그램 결과 전송은 outbox.json 폴링으로만 수행
-- inbox.json의 "done" 상태는 Cowork 상태 추적용이며 텔레그램 전송을 트리거하지 않음
-- 이유: inbox와 outbox 동시 폴링 시 중복 전송 및 empty result 문제 발생
+### Claude CLI 직접 호출 (v0.4.0~)
+- Cowork 1분 스케줄 대신 메시지 도착 즉시 `claude -p` subprocess 실행
+- 응답 시간: 수초 (스케줄 대기 없음)
+- Usage: 메시지당 1회만 소비 (idle 시 소비 없음)
+- MCP 서버(Slack, Notion, Gmail 등) 동일하게 사용 가능
+
+### Worker 패턴
+- 단일 worker goroutine이 큐에서 순차 처리 (동시 CLI 호출 방지)
+- sync.Map으로 in-flight 메시지 중복 방지
+- 텔레그램 직접 전송 성공 시 outbox에 "sent"로 기록 (audit trail)
+- 전송 실패 시 outbox에 "done"으로 기록 → outbox poller가 재시도
+
+### Stale recovery
+- 봇 시작 시 "processing" 상태 메시지를 "pending"으로 복구
+- 비정상 종료로 중단된 메시지 자동 재처리
 
 ### outbox 유연 파싱
-- Cowork가 `{"messages":[...]}` 또는 `[...]` 배열 형식으로 쓸 수 있음
-- store.go의 readOutbox가 두 형식 모두 처리
-
-### empty result 스킵
-- outbox 메시지의 result가 비어있으면 전송하지 않고 대기
-- Cowork가 2단계로 쓸 때 (status 먼저, result 나중) 빈 메시지 전송 방지
+- `{"messages":[...]}` 또는 `[...]` 배열 형식 모두 처리
+- 레거시 Cowork와의 호환성 유지
 
 ## 주의사항
 
@@ -68,3 +78,9 @@ go run .           # 실행 (멀티파일이므로 go run main.go 아닌 go run 
 | `MAX_RETRY_COUNT` | `3` | 에러 메시지 최대 재시도 |
 | `OUTBOX_POLL_INTERVAL_SECONDS` | `10` | outbox 폴링 주기 |
 | `LOG_FILE` | `./bot.log` | 로그 파일 경로 |
+| `CLAUDE_CLI_PATH` | `claude` | Claude CLI 바이너리 경로 |
+| `CLAUDE_WORK_DIR` | `.` | CLI 작업 디렉토리 |
+| `CLAUDE_TIMEOUT_SECONDS` | `120` | CLI 실행 타임아웃 |
+| `CLAUDE_SYSTEM_PROMPT` | (없음) | 커스텀 시스템 프롬프트 |
+| `CLAUDE_MODEL` | (없음) | 모델 지정 (예: sonnet, opus) |
+| `WORKER_QUEUE_SIZE` | `100` | 워커 큐 크기 |

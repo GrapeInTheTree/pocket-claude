@@ -15,8 +15,13 @@ type Bot struct {
 	api    *tgbotapi.BotAPI
 	cfg    Config
 	store  *Store
+	worker *Worker
 	logger *slog.Logger
 	wg     sync.WaitGroup
+}
+
+func (b *Bot) SetWorker(w *Worker) {
+	b.worker = w
 }
 
 func NewBot(cfg Config, store *Store, logger *slog.Logger) (*Bot, error) {
@@ -87,6 +92,13 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 	b.logger.Info("Message saved to inbox", "id", inboxMsg.ID, "text", truncate(inboxMsg.Text, 50))
+
+	// Trigger Claude CLI processing immediately
+	if b.worker != nil {
+		if !b.worker.Enqueue(inboxMsg) {
+			b.logger.Error("Failed to enqueue message", "id", inboxMsg.ID)
+		}
+	}
 }
 
 // --- Commands ---
