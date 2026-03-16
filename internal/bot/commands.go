@@ -94,26 +94,25 @@ func (b *Bot) cmdResume(args string) {
 	sessions := b.worker.GetSessions()
 
 	if len(sessions) == 0 {
-		b.sendMessage("No previous sessions found.")
+		b.sendMessage("No previous sessions found. Send some messages first!")
 		return
 	}
 
+	// Direct selection: /resume 2 or /resume <session_id>
 	args = strings.TrimSpace(args)
-
 	if args != "" {
 		var idx int
 		if _, err := fmt.Sscanf(args, "%d", &idx); err == nil && idx >= 1 && idx <= len(sessions) {
 			s := sessions[len(sessions)-idx]
 			b.worker.ResumeSession(s.ID)
-			b.sendMarkdown(fmt.Sprintf("🔄 Resumed session #%d\n`%s`\n_%s_",
-				idx, s.ID[:12], worker.EscapeMD(s.FirstMsg)))
+			b.sendMessage(fmt.Sprintf("🔄 Resumed session #%d: %s", idx, s.FirstMsg))
 			return
 		}
 
 		for _, s := range sessions {
 			if strings.HasPrefix(s.ID, args) {
 				b.worker.ResumeSession(s.ID)
-				b.sendMarkdown(fmt.Sprintf("🔄 Resumed session\n`%s`", s.ID[:12]))
+				b.sendMessage(fmt.Sprintf("🔄 Resumed session: %s", s.FirstMsg))
 				return
 			}
 		}
@@ -122,23 +121,33 @@ func (b *Bot) cmdResume(args string) {
 		return
 	}
 
-	var sb strings.Builder
-	sb.WriteString("📋 *Recent Sessions*\n\n")
-	for i := len(sessions) - 1; i >= 0; i-- {
+	// Show inline keyboard with recent sessions (max 5)
+	maxShow := 5
+	if len(sessions) < maxShow {
+		maxShow = len(sessions)
+	}
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for i := len(sessions) - 1; i >= len(sessions)-maxShow; i-- {
 		num := len(sessions) - i
 		s := sessions[i]
 		age := time.Since(s.Timestamp)
 		var ageStr string
 		if age < time.Hour {
-			ageStr = fmt.Sprintf("%dm ago", int(age.Minutes()))
+			ageStr = fmt.Sprintf("%dm", int(age.Minutes()))
 		} else {
-			ageStr = fmt.Sprintf("%dh ago", int(age.Hours()))
+			ageStr = fmt.Sprintf("%dh", int(age.Hours()))
 		}
-		sb.WriteString(fmt.Sprintf("#%d — _%s_ (%s)\n`%s`\n\n",
-			num, worker.EscapeMD(s.FirstMsg), ageStr, s.ID[:12]))
+		label := fmt.Sprintf("#%d %s (%s)", num, worker.Truncate(s.FirstMsg, 30), ageStr)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, "resume:"+s.ID),
+		))
 	}
-	sb.WriteString("Use: /resume `<number>`")
-	b.sendMarkdown(sb.String())
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, "📋 Select a session to resume:")
+	msg.ReplyMarkup = keyboard
+	b.api.Send(msg)
 }
 
 func (b *Bot) cmdModel(args string) {

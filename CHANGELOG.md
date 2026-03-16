@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-03-16
+
+### Changed
+- **Project structure**: Migrated to `cmd/internal` Go project layout
+  - `cmd/cowork-bot/main.go` — minimal entry point
+  - `internal/config` — configuration, logger, PID file
+  - `internal/store` — data models, file I/O with locking
+  - `internal/bot` — Telegram handlers, commands (3 files), media download
+  - `internal/claude` — CLI executor with session management
+  - `internal/worker` — message queue, approval flow, retry (2 files)
+- **Session management**: Replaced `--continue` with explicit `--resume <session_id>` to prevent conflicts with Claude Code terminal sessions in the same directory
+- `/resume` now shows inline keyboard buttons for session selection (max 5)
+- `/clear` and `/retry` now handle `failed` and `expired` statuses
+
+### Added
+- `MESSAGE_TTL_MINUTES` env var (default 10) — auto-expire old messages
+- `expired` status — messages past TTL are skipped and never retried
+- `failed` status — messages that exceeded max retries are permanently closed
+- Smart error classification: `signal: killed` (restart) retries silently without counting
+- Smart stale recovery on startup: respects TTL, marks old messages as expired
+
+### Fixed
+- Session conflicts between Telegram bot and Claude Code terminal in same directory
+- Stale message retry loops caused by bot restarts killing Claude CLI processes
+- Infinite retry cycles for permanently failed messages
+
 ## [0.8.0] - 2026-03-16
 
 ### Fixed
@@ -10,100 +36,53 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - PID file (`bot.pid`) for single instance enforcement; auto-kills previous on start
-- `cowork-bot` binary build target for reliable process management
 
 ## [0.7.0] - 2026-03-16
 
 ### Added
-- Photo and document attachment support — send images or files via Telegram for Claude to analyze
-- Telegram photos downloaded to temp files and passed to Claude CLI for multimodal processing
-- Caption support: use photo caption as prompt, defaults to "Analyze this image"
+- Photo and document attachment support via Telegram (multimodal)
 
 ## [0.6.0] - 2026-03-16
 
 ### Added
-- `/btw <note>` command — add context to the session without triggering full processing
-- `/resume` command — list recent sessions and switch back to any previous conversation
-- `/model <name>` command — switch Claude model on the fly (sonnet, opus, haiku)
-- `/cancel` command — cancel the currently processing message
-- `CLAUDE_ADD_DIRS` env var — allow Claude CLI to access directories outside the project (uses `--add-dir`)
-- Detailed permission request messages showing tool inputs (file paths, bash commands, etc.)
-- Claude's explanation included in permission request messages
-- Failure notifications sent to Telegram on timeout/error with retry guidance
-- Session tracking: last 10 sessions stored with ID, first message, and timestamp
-
-### Changed
-- Permission UI now shows specific details per tool (e.g., `write → /path/to/file`, `ls -la`)
-- Error handling sends structured Markdown notifications to Telegram
+- `/btw <note>` command — add context to session without full processing
+- `/resume` command — list and switch between previous sessions
+- `/model <name>` command — switch Claude model on the fly
+- `/cancel` command — cancel currently processing message
+- `CLAUDE_ADD_DIRS` env var — access directories outside the project
+- Detailed permission messages showing tool inputs (file paths, commands)
+- Failure notifications sent to Telegram on timeout/error
 
 ## [0.5.0] - 2026-03-16
 
 ### Added
-- Session continuity with `--continue` flag (conversations persist across messages)
-- `/new` command to reset session and start a fresh conversation
-- `/help` command with formatted command list and usage guide
-- Unknown command handler with `/help` suggestion
-- Pretty permission request messages with emoji tool icons and Markdown formatting
-- Tool name formatter: maps internal names to readable labels (e.g., `mcp__claude_ai_Slack__slack_send_message` → `💬 Slack → Send Message`)
-
-### Changed
-- All Telegram UI messages use Markdown formatting
-- Permission buttons styled with emoji: `✅ Allow` / `❌ Deny`
-- Approval/denial callback messages updated with bold status text
+- Session continuity with `--continue` flag
+- `/new` command to reset session
+- `/help` command with formatted command list
+- Pretty permission UI with emoji tool icons and Markdown
 
 ## [0.4.0] - 2026-03-16
 
 ### Added
-- Claude Code CLI integration (`claude -p` subprocess invocation)
-- Worker pattern: message queue + single goroutine sequential processing
-- `claude.go`: CLI executor with timeout, model selection, system prompt support
-- `worker.go`: queue management, in-flight dedup (`sync.Map`), pending poll, stale recovery
-- Two-phase permission flow: detect `permission_denials` → Telegram inline keyboard → re-execute with approval
+- Claude Code CLI integration (`claude -p` subprocess)
+- Worker pattern with message queue
+- Two-phase permission flow with inline keyboard approval
 - Direct Telegram send + outbox audit trail
-- Stale message recovery on startup ("processing" → "pending")
-- Environment variables: `CLAUDE_CLI_PATH`, `CLAUDE_WORK_DIR`, `CLAUDE_TIMEOUT_SECONDS`, `CLAUDE_SYSTEM_PROMPT`, `CLAUDE_MODEL`, `WORKER_QUEUE_SIZE`
 
 ### Changed
-- Replaced Cowork 1-minute schedule with instant CLI invocation (response in seconds)
-- Result delivery: direct Telegram send with outbox fallback on failure
+- Replaced Cowork 1-minute schedule with instant CLI invocation
 
 ## [0.3.0] - 2026-03-16
 
 ### Fixed
-- "(empty result)" messages sent to Telegram
-- `outbox.json` array format parsing failure (Cowork compatibility)
-- Multiple bot instance conflict
-
-### Removed
-- `PollInboxDone` — eliminated duplicate sends from inbox/outbox concurrent polling
-
-### Changed
-- Outbox messages with empty result are skipped instead of sending "(empty result)"
+- "(empty result)" messages, outbox format parsing, multiple bot instance conflicts
 
 ## [0.2.0] - 2026-03-16
 
 ### Added
-- Refactored into 4 files: `main.go`, `model.go`, `store.go`, `bot.go`
-- Lock file mechanism (`inbox.lock` with PID/timestamp, stale detection)
-- 5-stage message status: pending → processing → done → sent → error
-- Auto-retry logic (max 3 attempts, Telegram notification on exhaustion)
-- Dual concurrency protection: `sync.Mutex` + lock file
-- Structured logging with `log/slog` (stdout + `bot.log`)
-- Graceful shutdown on SIGINT/SIGTERM
-- Telegram commands: `/status`, `/clear`, `/retry`
-- New environment variables: `LOCK_TIMEOUT_MINUTES`, `MAX_RETRY_COUNT`, `OUTBOX_POLL_INTERVAL_SECONDS`, `LOG_FILE`
-
-### Changed
-- Go module path set to `github.com/GrapeInTheTree/claude-cowork-telegram`
-- Message IDs use `UnixMilli` for collision prevention
-- `inbox.json` schema extended with `retry_count`, `last_error`, `telegram_message_id`
+- Enterprise refactor: 4-file split, lock file, 5-stage status, retry, structured logging, graceful shutdown, /status /clear /retry commands
 
 ## [0.1.0] - 2026-03-16
 
 ### Added
-- Initial Telegram bot implementation
-- Receive messages → save to `inbox.json` (pending)
-- Poll `outbox.json` every 10 seconds → send done items to Telegram → mark sent
-- `TELEGRAM_CHAT_ID` filtering (ignore unauthorized chats)
-- `.env` file loading via godotenv
-- `.env.example` template
+- Initial Telegram bot: receive messages → inbox.json, poll outbox.json → send results

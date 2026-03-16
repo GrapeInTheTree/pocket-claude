@@ -195,7 +195,36 @@ func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
 	}
 
 	action := parts[0]
-	approvalID := parts[1]
+	value := parts[1]
+
+	// Handle resume session callback
+	if action == "resume" {
+		callback := tgbotapi.NewCallback(cq.ID, "")
+		b.api.Request(callback)
+
+		if b.worker != nil {
+			b.worker.ResumeSession(value)
+		}
+
+		// Find session first message for display
+		label := value[:12]
+		if b.worker != nil {
+			for _, s := range b.worker.GetSessions() {
+				if s.ID == value {
+					label = s.FirstMsg
+					break
+				}
+			}
+		}
+
+		edit := tgbotapi.NewEditMessageText(cq.Message.Chat.ID, cq.Message.MessageID,
+			fmt.Sprintf("🔄 Resumed: %s", label))
+		b.api.Send(edit)
+		return
+	}
+
+	// Handle permission approval/denial callback
+	approvalID := value
 	approved := action == "approve"
 
 	b.logger.Info("Permission callback", "approval_id", approvalID, "approved", approved)
