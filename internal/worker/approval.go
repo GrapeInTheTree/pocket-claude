@@ -45,10 +45,11 @@ func (w *Worker) requestApproval(ctx context.Context, msgID string, result *stor
 // ResolveApproval resolves a pending approval request from a Telegram callback.
 func (w *Worker) ResolveApproval(id string, approved bool) {
 	if val, ok := w.approvals.Load(id); ok {
-		ch := val.(chan bool)
-		select {
-		case ch <- approved:
-		default:
+		if ch, ok := val.(chan bool); ok {
+			select {
+			case ch <- approved:
+			default:
+			}
 		}
 	}
 }

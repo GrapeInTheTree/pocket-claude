@@ -131,6 +131,8 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 
 	var result store.CLIResult
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		e.logger.Warn("Claude CLI output not JSON, treating as plain text",
+			"error", err, "output_len", stdout.Len())
 		result = store.CLIResult{
 			Result: strings.TrimSpace(stdout.String()),
 		}

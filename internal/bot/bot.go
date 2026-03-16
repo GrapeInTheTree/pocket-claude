@@ -14,6 +14,9 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+// maxConcurrentCallbacks limits goroutine spawning for callback handlers.
+const maxConcurrentCallbacks = 10
+
 type Bot struct {
 	api    *tgbotapi.BotAPI
 	cfg    config.Config
@@ -21,6 +24,9 @@ type Bot struct {
 	worker *worker.Worker
 	logger *slog.Logger
 	wg     sync.WaitGroup
+
+	// Semaphore to bound concurrent callback/message goroutines
+	sem chan struct{}
 }
 
 func New(cfg config.Config, st *store.Store, logger *slog.Logger) (*Bot, error) {
@@ -36,6 +42,7 @@ func New(cfg config.Config, st *store.Store, logger *slog.Logger) (*Bot, error) 
 		cfg:    cfg,
 		store:  st,
 		logger: logger,
+		sem:    make(chan struct{}, maxConcurrentCallbacks),
 	}, nil
 }
 
@@ -45,15 +52,18 @@ func (b *Bot) SetWorker(w *worker.Worker) {
 
 // SendMessage sends a plain text message to the configured chat.
 func (b *Bot) SendMessage(text string) error {
+	text = strings.ToValidUTF8(text, "")
 	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
 	_, err := b.api.Send(msg)
+	if err != nil {
+		b.logger.Error("SendMessage failed", "error", err)
+	}
 	return err
 }
 
 // SendApprovalRequest sends an inline keyboard for permission approval.
 // Falls back to plain text if Markdown parsing fails.
 func (b *Bot) SendApprovalRequest(approvalID, text string) error {
-	// Sanitize UTF-8 to prevent Telegram API rejection
 	text = strings.ToValidUTF8(text, "")
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
@@ -76,13 +86,15 @@ func (b *Bot) SendApprovalRequest(approvalID, text string) error {
 }
 
 func (b *Bot) sendMessage(text string) error {
-	return b.SendMessage(strings.ToValidUTF8(text, ""))
+	return b.SendMessage(text)
 }
 
 func (b *Bot) sendMarkdown(text string) error {
+	text = strings.ToValidUTF8(text, "")
 	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
 	msg.ParseMode = "Markdown"
 	if _, err := b.api.Send(msg); err != nil {
+		b.logger.Warn("Markdown fallback to plain text", "error", err)
 		msg.ParseMode = ""
 		_, err = b.api.Send(msg)
 		return err
@@ -111,7 +123,7 @@ func (b *Bot) Listen(ctx context.Context) {
 			}
 
 			if update.CallbackQuery != nil {
-				go b.handleCallback(update.CallbackQuery)
+				b.runBounded(func() { b.handleCallback(update.CallbackQuery) })
 				continue
 			}
 
@@ -123,11 +135,25 @@ func (b *Bot) Listen(ctx context.Context) {
 			}
 
 			if update.Message.IsCommand() {
-				go b.handleCommand(update.Message)
+				b.runBounded(func() { b.handleCommand(update.Message) })
 			} else {
-				go b.handleMessage(update.Message)
+				b.runBounded(func() { b.handleMessage(update.Message) })
 			}
 		}
+	}
+}
+
+// runBounded runs fn in a goroutine, bounded by semaphore.
+func (b *Bot) runBounded(fn func()) {
+	select {
+	case b.sem <- struct{}{}:
+		go func() {
+			defer func() { <-b.sem }()
+			fn()
+		}()
+	default:
+		b.logger.Warn("Concurrent handler limit reached, running synchronously")
+		fn()
 	}
 }
 
@@ -200,17 +226,18 @@ func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
 	action := parts[0]
 	value := parts[1]
 
+	// Acknowledge callback immediately
+	if _, err := b.api.Request(tgbotapi.NewCallback(cq.ID, "")); err != nil {
+		b.logger.Error("Failed to acknowledge callback", "error", err)
+	}
+
 	// Handle resume session callback
 	if action == "resume" {
-		callback := tgbotapi.NewCallback(cq.ID, "")
-		b.api.Request(callback)
-
 		if b.worker != nil {
 			b.worker.ResumeSession(value)
 		}
 
-		// Find session display name
-		label := value[:12]
+		label := safeTruncate(value, 12)
 		if b.worker != nil {
 			for _, s := range b.worker.GetSessions() {
 				if s.ID == value {
@@ -226,7 +253,9 @@ func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
 
 		edit := tgbotapi.NewEditMessageText(cq.Message.Chat.ID, cq.Message.MessageID,
 			fmt.Sprintf("🔄 Resumed: %s", label))
-		b.api.Send(edit)
+		if _, err := b.api.Send(edit); err != nil {
+			b.logger.Error("Failed to edit resume message", "error", err)
+		}
 		return
 	}
 
@@ -236,9 +265,6 @@ func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
 
 	b.logger.Info("Permission callback", "approval_id", approvalID, "approved", approved)
 
-	callback := tgbotapi.NewCallback(cq.ID, "")
-	b.api.Request(callback)
-
 	var statusText string
 	if approved {
 		statusText = "✅ Approved — executing with permissions..."
@@ -246,7 +272,9 @@ func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
 		statusText = "❌ Denied — request cancelled."
 	}
 	edit := tgbotapi.NewEditMessageText(cq.Message.Chat.ID, cq.Message.MessageID, statusText)
-	b.api.Send(edit)
+	if _, err := b.api.Send(edit); err != nil {
+		b.logger.Error("Failed to edit approval message", "error", err)
+	}
 
 	if b.worker != nil {
 		b.worker.ResolveApproval(approvalID, approved)
@@ -286,6 +314,8 @@ func (b *Bot) processOutbox() {
 				continue
 			}
 			if err := b.sendMessage(text); err != nil {
+				b.logger.Warn("Outbox send failed, will retry",
+					"id", mf.Messages[i].ID, "error", err)
 				continue
 			}
 			mf.Messages[i].Status = store.StatusSent
@@ -298,4 +328,12 @@ func (b *Bot) processOutbox() {
 func (b *Bot) Shutdown() {
 	b.api.StopReceivingUpdates()
 	b.wg.Wait()
+}
+
+// safeTruncate safely truncates a string without panicking on short inputs.
+func safeTruncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
 }

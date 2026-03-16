@@ -24,6 +24,11 @@ func (b *Bot) downloadFile(fileID string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	// Validate HTTP status
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("telegram file API returned %d", resp.StatusCode)
+	}
+
 	ext := filepath.Ext(file.FilePath)
 	if ext == "" {
 		ext = ".bin"
@@ -33,11 +38,13 @@ func (b *Bot) downloadFile(fileID string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
-	defer tmpFile.Close()
 
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name()) // Clean up failed download
 		return "", fmt.Errorf("save file: %w", err)
 	}
 
+	tmpFile.Close()
 	return tmpFile.Name(), nil
 }

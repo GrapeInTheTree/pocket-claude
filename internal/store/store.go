@@ -49,7 +49,10 @@ func (s *Store) acquireLock() error {
 		PID:       os.Getpid(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
-	data, _ := json.Marshal(info)
+	data, err := json.Marshal(info)
+	if err != nil {
+		return fmt.Errorf("marshal lock info: %w", err)
+	}
 	return os.WriteFile(s.lockPath, data, 0644)
 }
 
