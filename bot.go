@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -85,9 +89,51 @@ func (b *Bot) Listen(ctx context.Context) {
 }
 
 func (b *Bot) handleMessage(msg *tgbotapi.Message) {
+	text := msg.Text
+
+	// Handle photos: download and include file path in prompt
+	if msg.Photo != nil && len(msg.Photo) > 0 {
+		// Get the largest photo
+		photo := msg.Photo[len(msg.Photo)-1]
+		filePath, err := b.downloadFile(photo.FileID)
+		if err != nil {
+			b.logger.Error("Failed to download photo", "error", err)
+			b.sendMessage("Failed to download photo.")
+			return
+		}
+
+		caption := msg.Caption
+		if caption == "" {
+			caption = "Analyze this image"
+		}
+		text = fmt.Sprintf("%s\n\nImage file: %s", caption, filePath)
+		b.logger.Info("Photo received", "path", filePath, "caption", caption)
+	}
+
+	// Handle documents (files)
+	if msg.Document != nil {
+		filePath, err := b.downloadFile(msg.Document.FileID)
+		if err != nil {
+			b.logger.Error("Failed to download document", "error", err)
+			b.sendMessage("Failed to download file.")
+			return
+		}
+
+		caption := msg.Caption
+		if caption == "" {
+			caption = "Analyze this file"
+		}
+		text = fmt.Sprintf("%s\n\nFile: %s", caption, filePath)
+		b.logger.Info("Document received", "path", filePath, "name", msg.Document.FileName)
+	}
+
+	if text == "" {
+		return
+	}
+
 	inboxMsg := InboxMessage{
 		ID:                fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
-		Text:              msg.Text,
+		Text:              text,
 		Status:            StatusPending,
 		Timestamp:         time.Now().UTC().Format(time.RFC3339),
 		RetryCount:        0,
@@ -503,6 +549,41 @@ func (b *Bot) processRetries() {
 }
 
 // --- Helpers ---
+
+func (b *Bot) downloadFile(fileID string) (string, error) {
+	file, err := b.api.GetFile(tgbotapi.FileConfig{FileID: fileID})
+	if err != nil {
+		return "", fmt.Errorf("get file info: %w", err)
+	}
+
+	// Download via Telegram API
+	url := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", b.cfg.TelegramToken, file.FilePath)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("download file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Determine extension from original path
+	ext := filepath.Ext(file.FilePath)
+	if ext == "" {
+		ext = ".bin"
+	}
+
+	// Save to temp file
+	tmpFile, err := os.CreateTemp("", "telegram-*"+ext)
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	defer tmpFile.Close()
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		return "", fmt.Errorf("save file: %w", err)
+	}
+
+	return tmpFile.Name(), nil
+}
 
 func (b *Bot) sendMessage(text string) error {
 	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
