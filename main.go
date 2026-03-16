@@ -30,6 +30,7 @@ type Config struct {
 	CLITimeoutSec   int
 	CLISystemPrompt string
 	CLIModel        string
+	CLIAddDirs      string
 	WorkerQueueSize int
 }
 
@@ -98,6 +99,7 @@ func loadConfig() Config {
 		CLITimeoutSec:   envIntOrDefault("CLAUDE_TIMEOUT_SECONDS", 120),
 		CLISystemPrompt: os.Getenv("CLAUDE_SYSTEM_PROMPT"),
 		CLIModel:        os.Getenv("CLAUDE_MODEL"),
+		CLIAddDirs:      envOrDefault("CLAUDE_ADD_DIRS", "~"),
 		WorkerQueueSize: envIntOrDefault("WORKER_QUEUE_SIZE", 100),
 	}
 

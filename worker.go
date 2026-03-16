@@ -14,14 +14,18 @@ type Worker struct {
 	inFlight  sync.Map
 	approvals sync.Map // map[string]chan bool
 
-	claude        *ClaudeExecutor
-	store         *Store
-	sendFn        func(string) error
+	claude         *ClaudeExecutor
+	store          *Store
+	sendFn         func(string) error
 	sendApprovalFn func(approvalID, text string) error
-	logger        *slog.Logger
-	wg            sync.WaitGroup
+	logger         *slog.Logger
+	wg             sync.WaitGroup
 
 	approvalTimeout time.Duration
+
+	cancelMu      sync.Mutex
+	currentCancel context.CancelFunc
+	currentMsgID  string
 }
 
 func NewWorker(
@@ -43,7 +47,6 @@ func NewWorker(
 	}
 }
 
-// Start runs the main processing loop.
 func (w *Worker) Start(ctx context.Context) {
 	w.wg.Add(1)
 	defer w.wg.Done()
@@ -61,7 +64,6 @@ func (w *Worker) Start(ctx context.Context) {
 	}
 }
 
-// Enqueue adds a message to the processing queue.
 func (w *Worker) Enqueue(msg InboxMessage) bool {
 	if _, loaded := w.inFlight.LoadOrStore(msg.ID, struct{}{}); loaded {
 		w.logger.Debug("Already in-flight, skipping", "id", msg.ID)
@@ -82,14 +84,27 @@ func (w *Worker) Enqueue(msg InboxMessage) bool {
 func (w *Worker) process(ctx context.Context, msg InboxMessage) {
 	defer w.inFlight.Delete(msg.ID)
 
+	// Set up cancellable context
+	ctx, cancel := context.WithCancel(ctx)
+	w.cancelMu.Lock()
+	w.currentCancel = cancel
+	w.currentMsgID = msg.ID
+	w.cancelMu.Unlock()
+	defer func() {
+		cancel()
+		w.cancelMu.Lock()
+		w.currentCancel = nil
+		w.currentMsgID = ""
+		w.cancelMu.Unlock()
+	}()
+
 	w.logger.Info("Processing started", "id", msg.ID)
 	w.updateInboxStatus(msg.ID, StatusProcessing, "", "")
 
 	// Phase 1: Execute with default permissions
 	result, err := w.claude.Execute(ctx, msg.Text, false)
 	if err != nil {
-		w.logger.Error("Claude failed", "id", msg.ID, "error", err)
-		w.updateInboxStatus(msg.ID, StatusError, "", err.Error())
+		w.handleError(msg.ID, msg.Text, err)
 		return
 	}
 
@@ -99,7 +114,7 @@ func (w *Worker) process(ctx context.Context, msg InboxMessage) {
 			"id", msg.ID,
 			"denials", len(result.PermissionDenials))
 
-		approved, err := w.requestApproval(ctx, msg.ID, result.PermissionDenials)
+		approved, err := w.requestApproval(ctx, msg.ID, result)
 		if err != nil {
 			w.logger.Error("Approval request failed", "id", msg.ID, "error", err)
 			w.sendAndRecord(msg.ID, result.Result)
@@ -112,12 +127,11 @@ func (w *Worker) process(ctx context.Context, msg InboxMessage) {
 			return
 		}
 
-		// Phase 2: Re-execute with permissions skipped (user approved)
-		w.logger.Info("User approved, re-executing with permissions", "id", msg.ID)
+		// Phase 2: Re-execute with permissions skipped
+		w.logger.Info("User approved, re-executing", "id", msg.ID)
 		result, err = w.claude.Execute(ctx, msg.Text, true)
 		if err != nil {
-			w.logger.Error("Claude re-execution failed", "id", msg.ID, "error", err)
-			w.updateInboxStatus(msg.ID, StatusError, "", err.Error())
+			w.handleError(msg.ID, msg.Text, err)
 			return
 		}
 	}
@@ -125,12 +139,26 @@ func (w *Worker) process(ctx context.Context, msg InboxMessage) {
 	w.sendAndRecord(msg.ID, result.Result)
 }
 
+func (w *Worker) handleError(msgID, msgText string, err error) {
+	w.logger.Error("Processing failed", "id", msgID, "error", err)
+	w.updateInboxStatus(msgID, StatusError, "", err.Error())
+
+	// Notify user on Telegram
+	errMsg := fmt.Sprintf(
+		"⚠️ *Processing Failed*\n\n"+
+			"Message: _%s_\n"+
+			"Error: `%s`\n\n"+
+			"Will auto-retry. Or use /retry to force.",
+		truncate(msgText, 80),
+		truncate(err.Error(), 100))
+	w.sendFn(errMsg)
+}
+
 func (w *Worker) sendAndRecord(msgID, result string) {
 	if result == "" {
 		result = "(no response)"
 	}
 
-	// Send directly to telegram
 	if err := w.sendFn(result); err != nil {
 		w.logger.Error("Telegram send failed, falling back to outbox",
 			"id", msgID, "error", err)
@@ -139,44 +167,25 @@ func (w *Worker) sendAndRecord(msgID, result string) {
 		return
 	}
 
-	// Success
 	w.appendOutbox(msgID, result, StatusSent)
 	w.updateInboxStatus(msgID, StatusSent, result, "")
 	w.logger.Info("Processing completed", "id", msgID)
 }
 
-// requestApproval sends an approval request to Telegram and waits for response.
-func (w *Worker) requestApproval(ctx context.Context, msgID string, denials []PermissionDenial) (bool, error) {
+// requestApproval sends a detailed approval request to Telegram.
+func (w *Worker) requestApproval(ctx context.Context, msgID string, result *CLIResult) (bool, error) {
 	ch := make(chan bool, 1)
 	w.approvals.Store(msgID, ch)
 	defer w.approvals.Delete(msgID)
 
-	// Build tool list
-	var tools []string
-	seen := make(map[string]bool)
-	for _, d := range denials {
-		if !seen[d.ToolName] {
-			tools = append(tools, d.ToolName)
-			seen[d.ToolName] = true
-		}
-	}
-
-	var toolLines []string
-	for _, t := range tools {
-		toolLines = append(toolLines, "  "+formatToolName(t))
-	}
-
-	text := fmt.Sprintf(
-		"🔐 *Permission Required*\n\n"+
-			"Claude needs the following tools:\n\n%s\n\n"+
-			"Allow execution?  _(expires in 2 min)_",
-		strings.Join(toolLines, "\n"))
+	// Build detailed permission message
+	text := w.buildPermissionMessage(result)
 
 	if err := w.sendApprovalFn(msgID, text); err != nil {
 		return false, fmt.Errorf("send approval request: %w", err)
 	}
 
-	w.logger.Info("Waiting for approval", "id", msgID, "tools", tools)
+	w.logger.Info("Waiting for approval", "id", msgID)
 
 	select {
 	case approved := <-ch:
@@ -184,12 +193,95 @@ func (w *Worker) requestApproval(ctx context.Context, msgID string, denials []Pe
 	case <-ctx.Done():
 		return false, ctx.Err()
 	case <-time.After(w.approvalTimeout):
-		w.sendFn("[Timeout] Permission request expired.")
-		return false, fmt.Errorf("approval timeout after %s", w.approvalTimeout)
+		w.sendFn("⏰ Permission request timed out (2 min).")
+		return false, fmt.Errorf("approval timeout")
 	}
 }
 
-// ResolveApproval resolves a pending approval request.
+func (w *Worker) buildPermissionMessage(result *CLIResult) string {
+	var sb strings.Builder
+	sb.WriteString("🔐 *Permission Required*\n\n")
+
+	// Group denials by tool, show details
+	type toolDetail struct {
+		icon    string
+		details []string
+	}
+	tools := make(map[string]*toolDetail)
+	order := []string{}
+
+	for _, d := range result.PermissionDenials {
+		name := formatToolName(d.ToolName)
+		if _, exists := tools[name]; !exists {
+			tools[name] = &toolDetail{icon: name}
+			order = append(order, name)
+		}
+		detail := extractToolDetail(d)
+		if detail != "" {
+			tools[name].details = append(tools[name].details, detail)
+		}
+	}
+
+	for _, name := range order {
+		td := tools[name]
+		sb.WriteString(fmt.Sprintf("• %s\n", name))
+		// Show unique details (max 3)
+		seen := make(map[string]bool)
+		count := 0
+		for _, d := range td.details {
+			if !seen[d] && count < 3 {
+				sb.WriteString(fmt.Sprintf("    `%s`\n", d))
+				seen[d] = true
+				count++
+			}
+		}
+	}
+
+	// Show Claude's explanation (truncated)
+	if result.Result != "" {
+		sb.WriteString(fmt.Sprintf("\n💬 _Claude says:_ %s\n", truncate(result.Result, 150)))
+	}
+
+	sb.WriteString("\n_Expires in 2 min_")
+	return sb.String()
+}
+
+func extractToolDetail(d PermissionDenial) string {
+	if d.ToolInput == nil {
+		return ""
+	}
+
+	switch d.ToolName {
+	case "Bash":
+		if cmd, ok := d.ToolInput["command"].(string); ok {
+			return truncate(cmd, 60)
+		}
+	case "Write":
+		if fp, ok := d.ToolInput["file_path"].(string); ok {
+			return "write → " + fp
+		}
+	case "Edit":
+		if fp, ok := d.ToolInput["file_path"].(string); ok {
+			return "edit → " + fp
+		}
+	default:
+		// MCP tools: try to show key params
+		var parts []string
+		for k, v := range d.ToolInput {
+			if s, ok := v.(string); ok && s != "" {
+				parts = append(parts, fmt.Sprintf("%s=%s", k, truncate(s, 30)))
+				if len(parts) >= 2 {
+					break
+				}
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, ", ")
+		}
+	}
+	return ""
+}
+
 func (w *Worker) ResolveApproval(id string, approved bool) {
 	if val, ok := w.approvals.Load(id); ok {
 		ch := val.(chan bool)
@@ -200,9 +292,36 @@ func (w *Worker) ResolveApproval(id string, approved bool) {
 	}
 }
 
-// ResetSession resets the Claude CLI session for a fresh conversation.
+// CancelCurrent cancels the currently processing message.
+func (w *Worker) CancelCurrent() (string, bool) {
+	w.cancelMu.Lock()
+	defer w.cancelMu.Unlock()
+	if w.currentCancel != nil {
+		w.currentCancel()
+		msgID := w.currentMsgID
+		return msgID, true
+	}
+	return "", false
+}
+
 func (w *Worker) ResetSession() {
 	w.claude.ResetSession()
+}
+
+func (w *Worker) SetModel(model string) {
+	w.claude.SetModel(model)
+}
+
+func (w *Worker) GetModel() string {
+	return w.claude.GetModel()
+}
+
+func (w *Worker) GetSessions() []SessionInfo {
+	return w.claude.GetSessions()
+}
+
+func (w *Worker) ResumeSession(id string) {
+	w.claude.SetResumeID(id)
 }
 
 // PollPending periodically checks inbox for pending messages and enqueues them.
@@ -238,7 +357,6 @@ func (w *Worker) enqueuePending() {
 	}
 }
 
-// RecoverStale resets "processing" messages to "pending" on startup.
 func (w *Worker) RecoverStale() int {
 	recovered := 0
 	w.store.UpdateInbox(func(mf *InboxFile) bool {
@@ -263,7 +381,6 @@ func (w *Worker) Stop() {
 // --- helpers ---
 
 func formatToolName(raw string) string {
-	// MCP tools: mcp__claude_ai_Slack__slack_send_message → 💬 Slack → Send Message
 	if strings.HasPrefix(raw, "mcp__") {
 		parts := strings.Split(raw, "__")
 		if len(parts) >= 3 {
@@ -290,12 +407,11 @@ func formatToolName(raw string) string {
 		}
 	}
 
-	// Built-in tools
 	icons := map[string]string{
 		"Bash": "⚡ Terminal Command", "Write": "📄 File Write",
 		"Edit": "✏️ File Edit", "Read": "📖 File Read",
+		"Glob": "🔍 File Search", "Grep": "🔎 Content Search",
 		"WebFetch": "🌐 Web Fetch", "WebSearch": "🔍 Web Search",
-		"NotebookEdit": "📓 Notebook Edit",
 	}
 	if name, ok := icons[raw]; ok {
 		return name

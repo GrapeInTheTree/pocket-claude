@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-03-16
+
+### Added
+- `/btw <note>` command — add context to the session without triggering full processing
+- `/resume` command — list recent sessions and switch back to any previous conversation
+- `/model <name>` command — switch Claude model on the fly (sonnet, opus, haiku)
+- `/cancel` command — cancel the currently processing message
+- `CLAUDE_ADD_DIRS` env var — allow Claude CLI to access directories outside the project (uses `--add-dir`)
+- Detailed permission request messages showing tool inputs (file paths, bash commands, etc.)
+- Claude's explanation included in permission request messages
+- Failure notifications sent to Telegram on timeout/error with retry guidance
+- Session tracking: last 10 sessions stored with ID, first message, and timestamp
+
+### Changed
+- Permission UI now shows specific details per tool (e.g., `write → /path/to/file`, `ls -la`)
+- Error handling sends structured Markdown notifications to Telegram
+
 ## [0.5.0] - 2026-03-16
 
 ### Added

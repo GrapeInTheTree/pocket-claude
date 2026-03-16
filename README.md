@@ -6,9 +6,13 @@ A Telegram bot that bridges [Claude Code CLI](https://docs.anthropic.com/en/docs
 
 - **Instant Processing** — Messages are processed immediately via Claude Code CLI (no polling delay)
 - **Session Memory** — Conversations persist automatically using `--continue`; use `/new` to start fresh
-- **Interactive Permissions** — When Claude needs elevated access (file writes, bash, etc.), the bot asks you via inline buttons before proceeding
+- **Session Resume** — Switch back to any previous conversation with `/resume`
+- **Context Notes** — Use `/btw` to add context without triggering full processing
+- **Interactive Permissions** — When Claude needs elevated access (file writes, bash, etc.), the bot asks you with detailed tool info via inline buttons
+- **Model Switching** — Change models on the fly with `/model sonnet` or `/model opus`
 - **MCP Tool Access** — Slack, Notion, Gmail, and any MCP server configured in Claude Code
-- **Retry & Recovery** — Automatic retry on failure (max 3), stale message recovery on restart
+- **Extended Directory Access** — Access files outside the project via `CLAUDE_ADD_DIRS`
+- **Retry & Recovery** — Automatic retry on failure (max 3), stale message recovery on restart, failure notifications
 - **Audit Trail** — All messages and results logged in `inbox.json` / `outbox.json`
 - **Structured Logging** — Logs to both stdout and file with timestamps and levels
 
@@ -80,6 +84,7 @@ CLAUDE_MODEL=                   # Model override: sonnet, opus, etc.
 | `CLAUDE_TIMEOUT_SECONDS` | `120` | CLI execution timeout |
 | `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
 | `CLAUDE_MODEL` | *(none)* | Model selection (e.g., `sonnet`) |
+| `CLAUDE_ADD_DIRS` | `~` | Extra directories Claude can access (comma-separated) |
 | `WORKER_QUEUE_SIZE` | `100` | Processing queue capacity |
 
 </details>
@@ -102,6 +107,10 @@ Send `/setcommands` to [@BotFather](https://t.me/BotFather) and paste:
 ```
 help - Show available commands
 new - Start a new conversation
+btw - Add context note
+resume - Resume a previous session
+model - Switch AI model
+cancel - Cancel current processing
 status - Message queue status
 clear - Clean up completed messages
 retry - Force retry error messages
@@ -113,6 +122,10 @@ retry - Force retry error messages
 |---|---|
 | `/help` | Show available commands |
 | `/new` | Start a new conversation (reset session) |
+| `/btw <note>` | Add context note without full processing |
+| `/resume` | List and resume a previous session |
+| `/model <name>` | Switch model (sonnet, opus, haiku) |
+| `/cancel` | Cancel the currently processing message |
 | `/status` | Show pending/processing/error message counts |
 | `/clear` | Remove completed (done/sent) messages from inbox |
 | `/retry` | Force retry all error messages (reset retry count) |
@@ -154,7 +167,13 @@ You: "Send him a DM saying hello"       ← Claude remembers "him" = Daniel
 Bot: "DM sent!"
 ```
 
-Use `/new` to start a fresh conversation when switching topics.
+Session commands:
+
+- `/new` — Start a fresh conversation when switching topics
+- `/btw working on Kayen today` — Add context; Claude remembers it for subsequent messages
+- `/resume` — List recent sessions and jump back to any of them
+- `/resume 2` — Resume session #2 directly
+- `/model opus` — Switch to a different model mid-conversation
 
 ### Permission System
 

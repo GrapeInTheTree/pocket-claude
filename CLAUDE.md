@@ -15,7 +15,7 @@ Telegram → Go Bot → inbox.json → Worker → claude -p (subprocess) → Tel
 ```
 
 - **Worker**: Single goroutine processing messages from a buffered channel. Calls `claude -p` and sends results back to Telegram.
-- **Session**: Uses `--continue` flag to maintain conversation context. `ResetSession()` clears it.
+- **Session**: Uses `--continue` flag to maintain conversation context. `ResetSession()` clears it. `--resume <id>` to switch to a previous session. Last 10 sessions tracked.
 - **Permissions**: Two-phase execution. First run with default permissions, check `permission_denials` in JSON output, ask user via Telegram inline keyboard, re-run with `--dangerously-skip-permissions` if approved.
 
 ## File Responsibilities
@@ -25,9 +25,9 @@ Telegram → Go Bot → inbox.json → Worker → claude -p (subprocess) → Tel
 | `main.go` | Entry point, config loading, logger, graceful shutdown, wiring |
 | `model.go` | Data types (`InboxMessage`, `OutboxMessage`, `CLIResult`, `PermissionDenial`) |
 | `store.go` | JSON file I/O with `sync.Mutex` + lock file for cross-process safety |
-| `bot.go` | Telegram update handler, commands (`/help`, `/new`, `/status`, `/clear`, `/retry`), callback queries, outbox poller |
-| `claude.go` | Claude CLI executor with `--continue` session management and `--output-format json` parsing |
-| `worker.go` | Message queue, two-phase permission flow, pending poll, stale recovery, tool name formatting |
+| `bot.go` | Telegram update handler, commands (`/help`, `/new`, `/btw`, `/resume`, `/model`, `/cancel`, `/status`, `/clear`, `/retry`), callback queries, outbox poller |
+| `claude.go` | Claude CLI executor with `--continue`/`--resume` session management, `--add-dir`, model switching, `--output-format json` parsing |
+| `worker.go` | Message queue, two-phase permission flow with detailed tool info, pending poll, stale recovery, cancel support |
 
 ## Build & Run
 
@@ -82,4 +82,5 @@ go run .         # run (multi-file, not go run main.go)
 | `CLAUDE_TIMEOUT_SECONDS` | `120` | CLI execution timeout |
 | `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
 | `CLAUDE_MODEL` | *(none)* | Model override |
+| `CLAUDE_ADD_DIRS` | `~` | Extra directories Claude can access (comma-separated) |
 | `WORKER_QUEUE_SIZE` | `100` | Worker queue capacity |
