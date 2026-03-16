@@ -1,4 +1,6 @@
-package main
+package store
+
+import "time"
 
 const (
 	StatusPending    = "pending"
@@ -6,6 +8,10 @@ const (
 	StatusDone       = "done"
 	StatusSent       = "sent"
 	StatusError      = "error"
+	StatusFailed     = "failed"  // max retries exceeded, permanent
+	StatusExpired    = "expired" // TTL exceeded
+
+	DefaultMessageTTL = 10 * time.Minute
 )
 
 type InboxMessage struct {
@@ -17,6 +23,15 @@ type InboxMessage struct {
 	LastError         string `json:"last_error,omitempty"`
 	TelegramMessageID int    `json:"telegram_message_id,omitempty"`
 	Result            string `json:"result,omitempty"`
+}
+
+// Age returns the duration since the message was created.
+func (m *InboxMessage) Age() time.Duration {
+	t, err := time.Parse(time.RFC3339, m.Timestamp)
+	if err != nil {
+		return 0
+	}
+	return time.Since(t)
 }
 
 type InboxFile struct {
@@ -40,12 +55,12 @@ type LockInfo struct {
 	Timestamp string `json:"timestamp"`
 }
 
-// Claude CLI JSON output
+// CLIResult represents the JSON output from Claude CLI.
 type CLIResult struct {
-	Type              string            `json:"type"`
-	Result            string            `json:"result"`
-	IsError           bool              `json:"is_error"`
-	SessionID         string            `json:"session_id"`
+	Type              string             `json:"type"`
+	Result            string             `json:"result"`
+	IsError           bool               `json:"is_error"`
+	SessionID         string             `json:"session_id"`
 	PermissionDenials []PermissionDenial `json:"permission_denials"`
 }
 

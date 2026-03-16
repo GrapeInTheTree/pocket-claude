@@ -1,4 +1,4 @@
-package main
+package store
 
 import (
 	"encoding/json"
@@ -20,7 +20,7 @@ type Store struct {
 	logger   *slog.Logger
 }
 
-func NewStore(inboxPath, outboxPath, lockPath string, lockTimeout time.Duration, logger *slog.Logger) *Store {
+func New(inboxPath, outboxPath, lockPath string, lockTimeout time.Duration, logger *slog.Logger) *Store {
 	return &Store{
 		inboxPath:   inboxPath,
 		outboxPath:  outboxPath,
@@ -165,9 +165,10 @@ func (s *Store) ClearCompleted() (int, error) {
 	var kept []InboxMessage
 	removed := 0
 	for _, m := range mf.Messages {
-		if m.Status == StatusDone || m.Status == StatusSent {
+		switch m.Status {
+		case StatusDone, StatusSent, StatusFailed, StatusExpired:
 			removed++
-		} else {
+		default:
 			kept = append(kept, m)
 		}
 	}
@@ -192,13 +193,12 @@ func (s *Store) readOutbox() (OutboxFile, error) {
 		return OutboxFile{}, err
 	}
 
-	// 1) 정상 형식: {"messages": [...]}
 	var mf OutboxFile
 	if err := json.Unmarshal(data, &mf); err == nil {
 		return mf, nil
 	}
 
-	// 2) Cowork가 배열로 쓴 경우: [{...}, {...}, ...]
+	// Flexible parsing: handle array format from legacy Cowork
 	var raw []json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return OutboxFile{}, fmt.Errorf("outbox parse error: %w", err)
@@ -206,7 +206,6 @@ func (s *Store) readOutbox() (OutboxFile, error) {
 
 	var messages []OutboxMessage
 	for _, item := range raw {
-		// 각 항목이 {"messages": [...]} 형태일 수도 있고 bare 메시지일 수도 있음
 		var nested OutboxFile
 		if json.Unmarshal(item, &nested) == nil && len(nested.Messages) > 0 {
 			messages = append(messages, nested.Messages...)
