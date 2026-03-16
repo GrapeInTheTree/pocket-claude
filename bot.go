@@ -284,7 +284,7 @@ func (b *Bot) cmdModel(args string) {
 func (b *Bot) cmdBtw(msg *tgbotapi.Message) {
 	text := strings.TrimSpace(msg.CommandArguments())
 	if text == "" {
-		b.sendMessage("Usage: /btw <context note>\nExample: /btw I'm working on the Kayen project today")
+		b.sendMessage("Usage: /btw <context note>\nExample: /btw I'm working on the API project today")
 		return
 	}
 

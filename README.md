@@ -170,7 +170,7 @@ Bot: "DM sent!"
 Session commands:
 
 - `/new` — Start a fresh conversation when switching topics
-- `/btw working on Kayen today` — Add context; Claude remembers it for subsequent messages
+- `/btw working on the API project today` — Add context; Claude remembers it for subsequent messages
 - `/resume` — List recent sessions and jump back to any of them
 - `/resume 2` — Resume session #2 directly
 - `/model opus` — Switch to a different model mid-conversation
