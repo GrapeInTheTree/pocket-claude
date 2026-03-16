@@ -1,3 +1,5 @@
 .env
+bot.log
+*.lock
 claude-cowork-telegram
 cowork-telegram-bot

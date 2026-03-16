@@ -1,191 +1,123 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
+	"context"
+	"io"
+	"log/slog"
 	"os"
+	"os/signal"
 	"strconv"
-	"sync"
+	"strings"
+	"syscall"
 	"time"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 )
 
-type Message struct {
-	ID        string `json:"id"`
-	Text      string `json:"text"`
-	Status    string `json:"status"`
-	Timestamp string `json:"timestamp"`
-	Result    string `json:"result,omitempty"`
+type Config struct {
+	TelegramToken         string
+	TelegramChatID        int64
+	InboxPath             string
+	OutboxPath            string
+	LockTimeoutMinutes    int
+	MaxRetryCount         int
+	OutboxPollIntervalSec int
+	LogFile               string
 }
-
-type MessageFile struct {
-	Messages []Message `json:"messages"`
-}
-
-var (
-	inboxPath  string
-	outboxPath string
-	fileMu     sync.Mutex
-)
 
 func main() {
+	cfg := loadConfig()
+	logger, logFile := setupLogger(cfg.LogFile)
+	defer logFile.Close()
+	slog.SetDefault(logger)
+
+	lockPath := strings.TrimSuffix(cfg.InboxPath, ".json") + ".lock"
+	store := NewStore(cfg.InboxPath, cfg.OutboxPath, lockPath,
+		time.Duration(cfg.LockTimeoutMinutes)*time.Minute, logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bot, err := NewBot(cfg, store, logger)
+	if err != nil {
+		logger.Error("Failed to create bot", "error", err)
+		os.Exit(1)
+	}
+
+	go bot.PollOutbox(ctx)
+	go bot.PollInboxDone(ctx)
+	go bot.ProcessRetries(ctx)
+	go bot.Listen(ctx)
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	sig := <-sigCh
+	logger.Info("Received signal, shutting down", "signal", sig)
+	cancel()
+	bot.Shutdown()
+	logger.Info("Bot stopped gracefully")
+}
+
+func loadConfig() Config {
 	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: .env file not found, using environment variables")
+		slog.Warn(".env file not found, using environment variables")
 	}
 
-	token := os.Getenv("TELEGRAM_TOKEN")
-	if token == "" {
-		log.Fatal("TELEGRAM_TOKEN is required")
+	cfg := Config{
+		TelegramToken:         mustEnv("TELEGRAM_TOKEN"),
+		InboxPath:             envOrDefault("INBOX_PATH", "./inbox.json"),
+		OutboxPath:            envOrDefault("OUTBOX_PATH", "./outbox.json"),
+		LockTimeoutMinutes:    envIntOrDefault("LOCK_TIMEOUT_MINUTES", 5),
+		MaxRetryCount:         envIntOrDefault("MAX_RETRY_COUNT", 3),
+		OutboxPollIntervalSec: envIntOrDefault("OUTBOX_POLL_INTERVAL_SECONDS", 10),
+		LogFile:               envOrDefault("LOG_FILE", "./bot.log"),
 	}
 
-	chatIDStr := os.Getenv("TELEGRAM_CHAT_ID")
-	if chatIDStr == "" {
-		log.Fatal("TELEGRAM_CHAT_ID is required")
-	}
+	chatIDStr := mustEnv("TELEGRAM_CHAT_ID")
 	chatID, err := strconv.ParseInt(chatIDStr, 10, 64)
 	if err != nil {
-		log.Fatalf("Invalid TELEGRAM_CHAT_ID: %v", err)
+		slog.Error("Invalid TELEGRAM_CHAT_ID", "error", err)
+		os.Exit(1)
 	}
+	cfg.TelegramChatID = chatID
 
-	inboxPath = os.Getenv("INBOX_PATH")
-	if inboxPath == "" {
-		inboxPath = "./inbox.json"
-	}
-	outboxPath = os.Getenv("OUTBOX_PATH")
-	if outboxPath == "" {
-		outboxPath = "./outbox.json"
-	}
-
-	bot, err := tgbotapi.NewBotAPI(token)
-	if err != nil {
-		log.Fatalf("Failed to create bot: %v", err)
-	}
-	log.Printf("Authorized on account %s", bot.Self.UserName)
-
-	// Start outbox polling
-	go pollOutbox(bot, chatID)
-
-	// Listen for incoming messages
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-
-	updates := bot.GetUpdatesChan(u)
-
-	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
-		if update.Message.Chat.ID != chatID {
-			log.Printf("Ignored message from chat %d", update.Message.Chat.ID)
-			continue
-		}
-
-		msg := Message{
-			ID:        fmt.Sprintf("msg_%d", time.Now().Unix()),
-			Text:      update.Message.Text,
-			Status:    "pending",
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-		}
-
-		if err := appendToInbox(msg); err != nil {
-			log.Printf("Failed to save message: %v", err)
-			continue
-		}
-		log.Printf("Saved message: %s", msg.ID)
-	}
+	return cfg
 }
 
-func readJSONFile(path string) (MessageFile, error) {
-	var mf MessageFile
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return MessageFile{Messages: []Message{}}, nil
-		}
-		return mf, err
+func mustEnv(key string) string {
+	val := os.Getenv(key)
+	if val == "" {
+		slog.Error("Required environment variable not set", "key", key)
+		os.Exit(1)
 	}
-
-	if err := json.Unmarshal(data, &mf); err != nil {
-		return mf, err
-	}
-	return mf, nil
+	return val
 }
 
-func writeJSONFile(path string, mf MessageFile) error {
-	data, err := json.MarshalIndent(mf, "", "  ")
-	if err != nil {
-		return err
+func envOrDefault(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
 	}
-	return os.WriteFile(path, data, 0644)
+	return defaultVal
 }
 
-func appendToInbox(msg Message) error {
-	fileMu.Lock()
-	defer fileMu.Unlock()
-
-	mf, err := readJSONFile(inboxPath)
-	if err != nil {
-		return fmt.Errorf("read inbox: %w", err)
+func envIntOrDefault(key string, defaultVal int) int {
+	if val := os.Getenv(key); val != "" {
+		if i, err := strconv.Atoi(val); err == nil {
+			return i
+		}
 	}
-
-	mf.Messages = append(mf.Messages, msg)
-
-	if err := writeJSONFile(inboxPath, mf); err != nil {
-		return fmt.Errorf("write inbox: %w", err)
-	}
-	return nil
+	return defaultVal
 }
 
-func pollOutbox(bot *tgbotapi.BotAPI, chatID int64) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		if err := processOutbox(bot, chatID); err != nil {
-			log.Printf("Outbox error: %v", err)
-		}
-	}
-}
-
-func processOutbox(bot *tgbotapi.BotAPI, chatID int64) error {
-	fileMu.Lock()
-	defer fileMu.Unlock()
-
-	mf, err := readJSONFile(outboxPath)
+func setupLogger(logFile string) (*slog.Logger, *os.File) {
+	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return fmt.Errorf("read outbox: %w", err)
+		slog.Error("Failed to open log file", "error", err)
+		os.Exit(1)
 	}
 
-	changed := false
-	for i := range mf.Messages {
-		if mf.Messages[i].Status != "done" {
-			continue
-		}
-
-		text := mf.Messages[i].Result
-		if text == "" {
-			text = "(empty result)"
-		}
-
-		msg := tgbotapi.NewMessage(chatID, text)
-		if _, err := bot.Send(msg); err != nil {
-			log.Printf("Failed to send message %s: %v", mf.Messages[i].ID, err)
-			continue
-		}
-
-		mf.Messages[i].Status = "sent"
-		changed = true
-		log.Printf("Sent outbox message: %s", mf.Messages[i].ID)
-	}
-
-	if changed {
-		if err := writeJSONFile(outboxPath, mf); err != nil {
-			return fmt.Errorf("write outbox: %w", err)
-		}
-	}
-	return nil
+	w := io.MultiWriter(os.Stdout, f)
+	handler := slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug})
+	return slog.New(handler), f
 }
