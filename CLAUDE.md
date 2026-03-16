@@ -30,7 +30,7 @@ internal/
   store/models.go                # Data types (7 statuses: pending/processing/done/sent/error/failed/expired)
   store/store.go                 # JSON file I/O, mutex, lock file
   bot/bot.go                     # Telegram listener, callbacks, outbox poller
-  bot/commands.go                # 9 commands: /help /new /btw /resume /model /cancel /status /clear /retry
+  bot/commands.go                # 10 commands: /help /new /name /btw /resume /model /cancel /status /clear /retry
   bot/media.go                   # Photo/document download from Telegram API
   claude/executor.go             # Claude CLI execution, --resume session tracking, model switching
   worker/worker.go               # Message queue, TTL, error classification, retry processor

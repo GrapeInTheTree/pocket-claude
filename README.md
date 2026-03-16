@@ -114,8 +114,9 @@ Send `/setcommands` to [@BotFather](https://t.me/BotFather) and paste:
 ```
 help - Show available commands
 new - Start a new conversation
-btw - Add context note
+name - Rename current session
 resume - Resume a previous session
+btw - Add context note
 model - Switch AI model
 cancel - Cancel current processing
 status - Message queue status
@@ -129,8 +130,9 @@ retry - Force retry error messages
 |---|---|
 | `/help` | Show available commands |
 | `/new` | Start a new conversation (reset session) |
-| `/btw <note>` | Add context note without full processing |
+| `/name <text>` | Rename current session (shown in `/resume` list) |
 | `/resume` | Select a previous session via inline buttons |
+| `/btw <note>` | Add context note without full processing |
 | `/model <name>` | Switch model (sonnet, opus, haiku) |
 | `/cancel` | Cancel the currently processing message |
 | `/status` | Show pending/processing/error message counts |
@@ -187,8 +189,9 @@ Bot: "DM sent!"
 Session commands:
 
 - `/new` — Start a fresh conversation when switching topics
+- `/name autoresearch 조사` — Label the current session for easy identification
+- `/resume` — Show recent sessions as inline buttons (displays `/name` if set), tap to switch
 - `/btw working on the API project today` — Add context; Claude remembers it for subsequent messages
-- `/resume` — Show recent sessions as inline buttons, tap to switch
 - `/model opus` — Switch to a different model mid-conversation
 
 ### Permission System

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-03-16
+
+### Added
+- `/name <text>` command — rename current session (synced to Claude CLI via `--name` flag)
+- Session names displayed in `/resume` inline keyboard (falls back to first message if unnamed)
+- UTF-8 sanitization on all Telegram messages to prevent API rejection
+
+### Fixed
+- Permission approval messages failing with "strings must be encoded in UTF-8"
+
 ## [1.0.0] - 2026-03-16
 
 ### Changed
