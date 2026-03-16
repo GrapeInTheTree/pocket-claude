@@ -177,12 +177,11 @@ func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
 	// Update the message to show result
 	var statusText string
 	if approved {
-		statusText = "✅ *Approved* — executing with permissions..."
+		statusText = "✅ Approved — executing with permissions..."
 	} else {
-		statusText = "❌ *Denied* — request cancelled."
+		statusText = "❌ Denied — request cancelled."
 	}
 	edit := tgbotapi.NewEditMessageText(cq.Message.Chat.ID, cq.Message.MessageID, statusText)
-	edit.ParseMode = "Markdown"
 	b.api.Send(edit)
 
 	// Resolve approval in worker
@@ -202,8 +201,15 @@ func (b *Bot) sendApprovalRequest(approvalID, text string) error {
 	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
-	_, err := b.api.Send(msg)
-	return err
+
+	// Try Markdown first, fallback to plain text if parsing fails
+	if _, err := b.api.Send(msg); err != nil {
+		b.logger.Warn("Markdown send failed, retrying plain text", "error", err)
+		msg.ParseMode = ""
+		_, err = b.api.Send(msg)
+		return err
+	}
+	return nil
 }
 
 // --- Commands ---

@@ -143,11 +143,11 @@ func (w *Worker) handleError(msgID, msgText string, err error) {
 	w.logger.Error("Processing failed", "id", msgID, "error", err)
 	w.updateInboxStatus(msgID, StatusError, "", err.Error())
 
-	// Notify user on Telegram
+	// Notify user on Telegram (plain text to avoid Markdown issues)
 	errMsg := fmt.Sprintf(
-		"⚠️ *Processing Failed*\n\n"+
-			"Message: _%s_\n"+
-			"Error: `%s`\n\n"+
+		"⚠️ Processing Failed\n\n"+
+			"Message: %s\n"+
+			"Error: %s\n\n"+
 			"Will auto-retry. Or use /retry to force.",
 		truncate(msgText, 80),
 		truncate(err.Error(), 100))
@@ -237,9 +237,10 @@ func (w *Worker) buildPermissionMessage(result *CLIResult) string {
 		}
 	}
 
-	// Show Claude's explanation (truncated)
+	// Show Claude's explanation (truncated, escaped for Markdown)
 	if result.Result != "" {
-		sb.WriteString(fmt.Sprintf("\n💬 _Claude says:_ %s\n", truncate(result.Result, 150)))
+		escaped := escapeMD(truncate(result.Result, 150))
+		sb.WriteString(fmt.Sprintf("\n💬 Claude: %s\n", escaped))
 	}
 
 	sb.WriteString("\n_Expires in 2 min_")
@@ -417,6 +418,13 @@ func formatToolName(raw string) string {
 		return name
 	}
 	return "🔧 " + raw
+}
+
+func escapeMD(s string) string {
+	replacer := strings.NewReplacer(
+		"_", "\\_", "*", "\\*", "`", "\\`", "[", "\\[",
+	)
+	return replacer.Replace(s)
 }
 
 func (w *Worker) updateInboxStatus(id, status, result, lastError string) {

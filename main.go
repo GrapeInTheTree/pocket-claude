@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -39,6 +40,14 @@ func main() {
 	logger, logFile := setupLogger(cfg.LogFile)
 	defer logFile.Close()
 	slog.SetDefault(logger)
+
+	// Ensure single instance via PID file
+	pidFile := "./bot.pid"
+	if err := acquirePIDFile(pidFile); err != nil {
+		logger.Error("Another bot instance is running", "error", err)
+		os.Exit(1)
+	}
+	defer os.Remove(pidFile)
 
 	lockPath := strings.TrimSuffix(cfg.InboxPath, ".json") + ".lock"
 	store := NewStore(cfg.InboxPath, cfg.OutboxPath, lockPath,
@@ -137,6 +146,30 @@ func envIntOrDefault(key string, defaultVal int) int {
 		}
 	}
 	return defaultVal
+}
+
+func acquirePIDFile(path string) error {
+	// Check if PID file exists and process is still alive
+	if data, err := os.ReadFile(path); err == nil {
+		var pid int
+		if _, err := fmt.Sscanf(string(data), "%d", &pid); err == nil {
+			// Check if process is still running
+			if proc, err := os.FindProcess(pid); err == nil {
+				if err := proc.Signal(syscall.Signal(0)); err == nil {
+					// Process is alive — kill it
+					slog.Warn("Killing existing bot instance", "pid", pid)
+					proc.Signal(syscall.SIGTERM)
+					time.Sleep(2 * time.Second)
+					proc.Kill()
+					time.Sleep(1 * time.Second)
+				}
+			}
+		}
+		os.Remove(path)
+	}
+
+	// Write our PID
+	return os.WriteFile(path, []byte(fmt.Sprintf("%d", os.Getpid())), 0644)
 }
 
 func setupLogger(logFile string) (*slog.Logger, *os.File) {
