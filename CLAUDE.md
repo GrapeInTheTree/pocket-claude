@@ -1,86 +1,85 @@
 # CLAUDE.md
 
-이 파일은 Claude Code가 이 프로젝트를 이해하고 작업할 때 참고하는 컨텍스트 문서입니다.
+Project context for Claude Code when working in this repository.
 
-## 프로젝트 개요
+## Overview
 
-텔레그램 메시지를 받아 Claude Code CLI로 즉시 처리하고 결과를 텔레그램으로 전송하는 Go 봇.
-맥북 로컬에서 실행되며, Claude Cowork 스케줄 없이 메시지 도착 즉시 `claude -p`를 호출한다.
+Telegram bot (Go) that bridges Claude Code CLI with Telegram. Messages from Telegram are processed instantly by calling `claude -p` as a subprocess, with full MCP tool access.
 
-## 아키텍처
+## Architecture
 
 ```
-텔레그램 → Go 봇 → inbox.json (pending)
-                 → Worker → claude -p (CLI subprocess)
-                          → 텔레그램 직접 전송 + outbox.json (audit)
+Telegram → Go Bot → inbox.json → Worker → claude -p (subprocess) → Telegram
+                                       ↕
+                              Permission flow via inline keyboard
 ```
 
-- **Worker**: 메시지 큐에서 하나씩 꺼내 `claude -p`로 처리. 단일 goroutine으로 순차 실행.
-- **PollPending**: 30초마다 inbox에서 pending 메시지 확인 (retry/recovery fallback).
-- **PollOutbox**: outbox.json에서 done 메시지 전송 (레거시 Cowork 호환 + fallback).
+- **Worker**: Single goroutine processing messages from a buffered channel. Calls `claude -p` and sends results back to Telegram.
+- **Session**: Uses `--continue` flag to maintain conversation context. `ResetSession()` clears it.
+- **Permissions**: Two-phase execution. First run with default permissions, check `permission_denials` in JSON output, ask user via Telegram inline keyboard, re-run with `--dangerously-skip-permissions` if approved.
 
-## 파일 구조
+## File Responsibilities
 
-| 파일 | 역할 |
+| File | Role |
 |---|---|
-| `main.go` | 엔트리포인트, Config, 로거, graceful shutdown, 전체 와이어링 |
-| `model.go` | 데이터 타입 (InboxMessage, OutboxMessage) 및 상태 상수 |
-| `store.go` | JSON 파일 I/O, Mutex, lock file 메커니즘 |
-| `bot.go` | 텔레그램 핸들러, 커맨드, outbox 폴러, retry 프로세서 |
-| `claude.go` | Claude CLI executor (subprocess 관리, 타임아웃) |
-| `worker.go` | 메시지 처리 워커 (큐, dedup, pending poll, stale recovery) |
+| `main.go` | Entry point, config loading, logger, graceful shutdown, wiring |
+| `model.go` | Data types (`InboxMessage`, `OutboxMessage`, `CLIResult`, `PermissionDenial`) |
+| `store.go` | JSON file I/O with `sync.Mutex` + lock file for cross-process safety |
+| `bot.go` | Telegram update handler, commands (`/help`, `/new`, `/status`, `/clear`, `/retry`), callback queries, outbox poller |
+| `claude.go` | Claude CLI executor with `--continue` session management and `--output-format json` parsing |
+| `worker.go` | Message queue, two-phase permission flow, pending poll, stale recovery, tool name formatting |
 
-## 빌드 및 실행
+## Build & Run
 
 ```bash
-go build ./...     # 빌드
-go run .           # 실행
+go build ./...   # build
+go vet ./...     # lint
+go run .         # run (multi-file, not go run main.go)
 ```
 
-## 주요 설계 결정
+## Key Design Decisions
 
-### Claude CLI 직접 호출 (v0.4.0~)
-- Cowork 1분 스케줄 대신 메시지 도착 즉시 `claude -p` subprocess 실행
-- 응답 시간: 수초 (스케줄 대기 없음)
-- Usage: 메시지당 1회만 소비 (idle 시 소비 없음)
-- MCP 서버(Slack, Notion, Gmail 등) 동일하게 사용 가능
+### Claude CLI direct invocation
+- Replaced Cowork scheduled polling (1 min) with instant `claude -p` subprocess calls
+- Response time: seconds instead of up to 1 minute
+- Usage: consumed only when messages arrive (no idle cost)
 
-### Worker 패턴
-- 단일 worker goroutine이 큐에서 순차 처리 (동시 CLI 호출 방지)
-- sync.Map으로 in-flight 메시지 중복 방지
-- 텔레그램 직접 전송 성공 시 outbox에 "sent"로 기록 (audit trail)
-- 전송 실패 시 outbox에 "done"으로 기록 → outbox poller가 재시도
+### Two-phase permission flow
+- Phase 1: default permissions → detect `permission_denials` in JSON output
+- If denied: Telegram inline keyboard `[Allow] [Deny]` with 2-min timeout
+- Phase 2 (if approved): re-run with `--dangerously-skip-permissions`
+- Secure: only authorized `TELEGRAM_CHAT_ID` can approve
 
-### Stale recovery
-- 봇 시작 시 "processing" 상태 메시지를 "pending"으로 복구
-- 비정상 종료로 중단된 메시지 자동 재처리
+### Session continuity
+- `--continue` flag used after first successful execution
+- `/new` command resets session via `ClaudeExecutor.ResetSession()`
+- Enables natural conversation: "send him a DM" works because Claude remembers "him"
 
-### outbox 유연 파싱
-- `{"messages":[...]}` 또는 `[...]` 배열 형식 모두 처리
-- 레거시 Cowork와의 호환성 유지
+### Flexible outbox parsing
+- Handles both `{"messages":[...]}` and `[...]` array formats
+- Legacy Cowork compatibility maintained
 
-## 주의사항
+## Important Notes
 
-- 봇 인스턴스는 반드시 1개만 실행할 것. 텔레그램 Long Polling은 동시 접속 불가.
-- `.env` 파일에 실제 토큰이 있으므로 절대 커밋하지 말 것
-- inbox.json, outbox.json에 대화 내용 + 개인정보 포함 가능 → 커밋 금지
-- bot.log, *.lock 파일도 커밋 대상 아님
+- Only ONE bot instance at a time (Telegram Long Polling limitation)
+- Never commit `.env`, `inbox.json`, `outbox.json`, `bot.log`, `*.lock`
+- `inbox.json` / `outbox.json` may contain personal data (conversations, emails)
 
-## 환경변수
+## Environment Variables
 
-| 변수 | 기본값 | 설명 |
+| Variable | Default | Description |
 |---|---|---|
-| `TELEGRAM_TOKEN` | (필수) | 봇 토큰 |
-| `TELEGRAM_CHAT_ID` | (필수) | 허용할 채팅 ID |
-| `INBOX_PATH` | `./inbox.json` | 수신 메시지 파일 |
-| `OUTBOX_PATH` | `./outbox.json` | 송신 결과 파일 |
-| `LOCK_TIMEOUT_MINUTES` | `5` | stale lock 판단 시간 |
-| `MAX_RETRY_COUNT` | `3` | 에러 메시지 최대 재시도 |
-| `OUTBOX_POLL_INTERVAL_SECONDS` | `10` | outbox 폴링 주기 |
-| `LOG_FILE` | `./bot.log` | 로그 파일 경로 |
-| `CLAUDE_CLI_PATH` | `claude` | Claude CLI 바이너리 경로 |
-| `CLAUDE_WORK_DIR` | `.` | CLI 작업 디렉토리 |
-| `CLAUDE_TIMEOUT_SECONDS` | `120` | CLI 실행 타임아웃 |
-| `CLAUDE_SYSTEM_PROMPT` | (없음) | 커스텀 시스템 프롬프트 |
-| `CLAUDE_MODEL` | (없음) | 모델 지정 (예: sonnet, opus) |
-| `WORKER_QUEUE_SIZE` | `100` | 워커 큐 크기 |
+| `TELEGRAM_TOKEN` | *(required)* | Bot token |
+| `TELEGRAM_CHAT_ID` | *(required)* | Allowed chat ID |
+| `INBOX_PATH` | `./inbox.json` | Incoming messages |
+| `OUTBOX_PATH` | `./outbox.json` | Outgoing results |
+| `LOCK_TIMEOUT_MINUTES` | `5` | Stale lock threshold |
+| `MAX_RETRY_COUNT` | `3` | Error retry limit |
+| `OUTBOX_POLL_INTERVAL_SECONDS` | `10` | Outbox poll interval |
+| `LOG_FILE` | `./bot.log` | Log file path |
+| `CLAUDE_CLI_PATH` | `claude` | CLI binary path |
+| `CLAUDE_WORK_DIR` | `.` | CLI working directory |
+| `CLAUDE_TIMEOUT_SECONDS` | `120` | CLI execution timeout |
+| `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
+| `CLAUDE_MODEL` | *(none)* | Model override |
+| `WORKER_QUEUE_SIZE` | `100` | Worker queue capacity |

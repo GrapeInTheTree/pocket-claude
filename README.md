@@ -1,183 +1,255 @@
 # Cowork Telegram Bot
 
-## 개요
+A Telegram bot that bridges [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) with Telegram, enabling you to interact with Claude from your phone. Send a message on Telegram, and Claude processes it instantly using the `claude -p` CLI — including full access to MCP tools like Slack, Notion, Gmail, and more.
 
-Claude Code CLI와 텔레그램을 연결하는 AI 비서 봇.
-텔레그램으로 메시지를 보내면 `claude -p` CLI를 즉시 호출하여
-Claude가 처리한 결과를 텔레그램으로 받아볼 수 있다.
+## Features
 
-## 아키텍처
+- **Instant Processing** — Messages are processed immediately via Claude Code CLI (no polling delay)
+- **Session Memory** — Conversations persist automatically using `--continue`; use `/new` to start fresh
+- **Interactive Permissions** — When Claude needs elevated access (file writes, bash, etc.), the bot asks you via inline buttons before proceeding
+- **MCP Tool Access** — Slack, Notion, Gmail, and any MCP server configured in Claude Code
+- **Retry & Recovery** — Automatic retry on failure (max 3), stale message recovery on restart
+- **Audit Trail** — All messages and results logged in `inbox.json` / `outbox.json`
+- **Structured Logging** — Logs to both stdout and file with timestamps and levels
 
-```
-핸드폰 텔레그램
-    ↕
-텔레그램 서버 (HTTPS Long Polling)
-    ↕
-Go 봇 (맥북 로컬 실행)
-    ├→ inbox.json 기록 (pending)
-    ├→ Worker → claude -p (CLI subprocess, 즉시 실행)
-    └→ 결과 텔레그램 전송 + outbox.json 기록 (audit)
-```
-
-## 파일 구조
+## Architecture
 
 ```
-claude-cowork-telegram/
-├── main.go          # 엔트리포인트, 설정, 로거, graceful shutdown
-├── model.go         # 데이터 타입 및 상태 상수
-├── store.go         # JSON 파일 I/O, Mutex, Lock 파일 관리
-├── bot.go           # 텔레그램 핸들러, 커맨드, outbox 폴러
-├── claude.go        # Claude CLI executor (subprocess 관리)
-├── worker.go        # 메시지 처리 워커 (큐, dedup, recovery)
-├── go.mod
-├── go.sum
-├── .env             # 환경변수 (git 제외)
-├── .env.example     # 환경변수 템플릿
-├── inbox.json       # 텔레그램 → Cowork 메시지 큐
-├── outbox.json      # Cowork → 텔레그램 결과 큐
-├── inbox.lock       # 동시 접근 방지 락 파일
-├── bot.log          # 봇 실행 로그
-└── README.md
+Telegram (phone)
+    ↕  HTTPS Long Polling
+Go Bot (local machine)
+    ├─ Save to inbox.json (pending)
+    ├─ Worker → claude -p (subprocess)
+    │   ├─ Permission denied? → Ask user via Telegram inline keyboard
+    │   └─ Approved? → Re-execute with permissions
+    └─ Send result to Telegram + record in outbox.json
 ```
 
-## 메시지 상태 흐름
+## Quick Start
 
-```
-pending → processing → done → sent
-                ↓
-              error (최대 3회 retry 후 텔레그램 알림)
-```
+### Prerequisites
 
-| 상태 | 설명 |
-|---|---|
-| pending | Go 봇이 기록, Cowork 처리 대기 중 |
-| processing | Cowork가 현재 처리 중 |
-| done | Cowork 처리 완료, 텔레그램 전송 대기 |
-| sent | 텔레그램 전송 완료 |
-| error | 처리 실패 (retry_count 확인) |
+- [Go](https://go.dev/) 1.21+
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+- A Telegram bot token from [@BotFather](https://t.me/BotFather)
+- Your Telegram chat ID (use [@userinfobot](https://t.me/userinfobot) to find it)
 
-## inbox.json 구조
-
-```json
-{
-  "messages": [
-    {
-      "id": "msg_1234567890",
-      "text": "Downloads 폴더 정리해줘",
-      "status": "pending",
-      "timestamp": "2026-03-16T14:00:00Z",
-      "retry_count": 0,
-      "last_error": "",
-      "telegram_message_id": 42
-    }
-  ]
-}
-```
-
-## Lock 메커니즘
-
-동시 접근 문제 방지를 위해 두 단계 Lock 사용:
-
-1. **Go 봇 레벨**: `sync.Mutex`로 파일 접근 직렬화
-2. **Cowork 레벨**: `inbox.lock` 파일로 스케줄 중복 실행 방지
-
-```
-Cowork 실행 시작
-    → inbox.lock 존재 확인
-    → 5분 이상 오래된 lock이면 stale로 판단 후 삭제
-    → lock 없으면 inbox.lock 생성 (timestamp 기록)
-    → 작업 수행
-    → inbox.lock 삭제
-```
-
-## 설치 및 실행
-
-### 사전 요구사항
-
-- Go 1.21+
-- Claude Code CLI (`claude` 명령어)
-- 텔레그램 계정
-
-### 설치
+### Installation
 
 ```bash
-git clone git@github.com:GrapeInTheTree/claude-cowork-telegram.git
+git clone https://github.com/GrapeInTheTree/claude-cowork-telegram.git
 cd claude-cowork-telegram
 go mod download
 ```
 
-### 환경변수 설정
+### Configuration
 
 ```bash
 cp .env.example .env
-nano .env
 ```
+
+Edit `.env` with your values:
 
 ```env
-TELEGRAM_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-INBOX_PATH=./inbox.json
-OUTBOX_PATH=./outbox.json
-LOCK_TIMEOUT_MINUTES=5
-MAX_RETRY_COUNT=3
-OUTBOX_POLL_INTERVAL_SECONDS=10
-LOG_FILE=./bot.log
+# Required
+TELEGRAM_TOKEN=your-bot-token
+TELEGRAM_CHAT_ID=your-chat-id
 
-# Claude CLI
-CLAUDE_CLI_PATH=claude
-CLAUDE_WORK_DIR=.
-CLAUDE_TIMEOUT_SECONDS=120
-CLAUDE_SYSTEM_PROMPT=
-CLAUDE_MODEL=
-WORKER_QUEUE_SIZE=100
+# Optional — Claude CLI
+CLAUDE_CLI_PATH=claude          # Path to claude binary
+CLAUDE_TIMEOUT_SECONDS=120      # Max execution time per message
+CLAUDE_SYSTEM_PROMPT=           # Custom system prompt (optional)
+CLAUDE_MODEL=                   # Model override: sonnet, opus, etc.
 ```
 
-### 실행
+<details>
+<summary>All environment variables</summary>
+
+| Variable | Default | Description |
+|---|---|---|
+| `TELEGRAM_TOKEN` | *(required)* | Bot token from BotFather |
+| `TELEGRAM_CHAT_ID` | *(required)* | Allowed chat ID (all others ignored) |
+| `INBOX_PATH` | `./inbox.json` | Incoming message store |
+| `OUTBOX_PATH` | `./outbox.json` | Outgoing result store |
+| `LOCK_TIMEOUT_MINUTES` | `5` | Stale lock detection threshold |
+| `MAX_RETRY_COUNT` | `3` | Max retries for failed messages |
+| `OUTBOX_POLL_INTERVAL_SECONDS` | `10` | Outbox polling interval |
+| `LOG_FILE` | `./bot.log` | Log file path |
+| `CLAUDE_CLI_PATH` | `claude` | Claude CLI binary path |
+| `CLAUDE_WORK_DIR` | `.` | Working directory for CLI |
+| `CLAUDE_TIMEOUT_SECONDS` | `120` | CLI execution timeout |
+| `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
+| `CLAUDE_MODEL` | *(none)* | Model selection (e.g., `sonnet`) |
+| `WORKER_QUEUE_SIZE` | `100` | Processing queue capacity |
+
+</details>
+
+### Run
 
 ```bash
-# 개발
+# Development
 go run .
 
-# 빌드 후 실행
+# Build and run
 go build -o cowork-bot
 ./cowork-bot
 ```
 
-### 맥북 시작 시 자동 실행 (launchd)
+### Set up BotFather commands (optional)
+
+Send `/setcommands` to [@BotFather](https://t.me/BotFather) and paste:
+
+```
+help - Show available commands
+new - Start a new conversation
+status - Message queue status
+clear - Clean up completed messages
+retry - Force retry error messages
+```
+
+## Telegram Commands
+
+| Command | Description |
+|---|---|
+| `/help` | Show available commands |
+| `/new` | Start a new conversation (reset session) |
+| `/status` | Show pending/processing/error message counts |
+| `/clear` | Remove completed (done/sent) messages from inbox |
+| `/retry` | Force retry all error messages (reset retry count) |
+
+## How It Works
+
+### Message Flow
+
+```
+1. You send a message on Telegram
+2. Bot saves it to inbox.json with status "pending"
+3. Worker picks it up, sets status to "processing"
+4. Worker calls: claude -p "your message" --output-format json --continue
+5. If permission denied → sends inline keyboard [Allow] [Deny]
+   - Allow → re-runs with --dangerously-skip-permissions
+   - Deny  → returns partial result
+6. Result sent to Telegram, status set to "sent"
+7. Result also recorded in outbox.json for audit
+```
+
+### Message Status Lifecycle
+
+```
+pending → processing → sent
+                ↓
+              error → (auto-retry up to 3x) → pending
+                ↓
+           [MAX_RETRY] → notification sent
+```
+
+### Session Management
+
+By default, conversations are **continued** across messages using Claude's `--continue` flag. This means Claude remembers previous context:
+
+```
+You: "Search for Daniel on Slack"
+Bot: "Found Daniel (Product - Defi)..."
+You: "Send him a DM saying hello"       ← Claude remembers "him" = Daniel
+Bot: "DM sent!"
+```
+
+Use `/new` to start a fresh conversation when switching topics.
+
+### Permission System
+
+When Claude needs tools that require approval (file writes, bash commands, etc.):
+
+1. Bot detects `permission_denials` in Claude's JSON output
+2. Sends you an inline keyboard with tool details:
+   ```
+   🔐 Permission Required
+
+   Claude needs the following tools:
+     💬 Slack → Send Message
+     📄 File Write
+
+   Allow execution?  (expires in 2 min)
+
+   [✅ Allow]  [❌ Deny]
+   ```
+3. **Allow** → Claude re-executes with full permissions
+4. **Deny** → Returns Claude's partial response
+5. **Timeout** (2 min) → Auto-denied
+
+### File Lock Mechanism
+
+Prevents concurrent file access between the bot and external processes:
+
+1. **In-process**: `sync.Mutex` serializes goroutine access
+2. **Cross-process**: `inbox.lock` file with PID and timestamp
+3. Locks older than 5 minutes are treated as stale and removed
+
+## Project Structure
+
+```
+claude-cowork-telegram/
+├── main.go       # Entry point, config, logger, graceful shutdown
+├── model.go      # Data types and status constants
+├── store.go      # JSON file I/O with mutex and lock file
+├── bot.go        # Telegram handlers, commands, callbacks, outbox poller
+├── claude.go     # Claude CLI executor with session management
+├── worker.go     # Message queue, permission flow, retry, recovery
+├── go.mod
+├── go.sum
+├── .env.example  # Environment variable template
+├── CLAUDE.md     # Project context for Claude Code
+└── CHANGELOG.md  # Version history
+```
+
+## Auto-Start on macOS (optional)
+
+Create `~/Library/LaunchAgents/com.cowork.telegram.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cowork.telegram</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/cowork-bot</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/path/to/claude-cowork-telegram</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/cowork-telegram.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/cowork-telegram.err</string>
+</dict>
+</plist>
+```
 
 ```bash
-# ~/Library/LaunchAgents/com.cowork.telegram.plist 생성
-# 맥북 재시작 시 자동으로 봇 실행됨
+launchctl load ~/Library/LaunchAgents/com.cowork.telegram.plist
 ```
 
-## 텔레그램 특수 명령어
+## Security
 
-| 명령어 | 설명 |
-|---|---|
-| `/status` | 현재 pending/processing 메시지 수 + 마지막 실행 시간 |
-| `/clear` | done/sent 처리된 메시지 정리 |
-| `/retry` | error 상태 메시지 강제 재시도 |
+- Only messages from `TELEGRAM_CHAT_ID` are processed; all others are silently ignored
+- Permission-sensitive tools require explicit approval via Telegram
+- `.env` contains secrets — never commit it
+- Bot token can be revoked via BotFather at any time
 
-## 처리 방식
+## Limitations
 
-메시지 도착 즉시 `claude -p` CLI를 subprocess로 호출하여 처리.
-Cowork 스케줄 불필요. outbox.json은 audit trail + fallback용으로 유지.
+- Requires the host machine to be running (not a cloud service)
+- Response time depends on Claude's processing (typically 5-30 seconds)
+- Sleep/hibernate will pause the bot
+- Each message consumes Claude Plan usage (Pro/Max recommended)
 
-```
-메시지 도착 → inbox (pending) → Worker → claude -p → 텔레그램 직접 전송
-                                                    + outbox (sent, 기록용)
-```
+## License
 
-## 보안
-
-- `TELEGRAM_CHAT_ID`에 등록된 본인 ID 외 모든 메시지 무시
-- `.env` 파일은 절대 git에 커밋하지 말 것
-- 봇 토큰 유출 시 BotFather에서 즉시 revoke
-
-## 한계 및 주의사항
-
-- 맥북에서 Go 봇이 실행 중이어야 동작
-- Claude Code CLI가 설치되어 있어야 함
-- 응답 시간: 수초~수분 (Claude 처리 시간에 따라 다름, 타임아웃 기본 120초)
-- 절전 모드 시 동작 중단 → 시스템 환경설정에서 절전 비활성화 권장
-- Claude Plan usage를 소비하므로 Pro/Max 플랜 사용량 모니터링 권장
+MIT

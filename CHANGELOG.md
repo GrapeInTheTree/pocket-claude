@@ -1,57 +1,75 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+## [0.5.0] - 2026-03-16
+
+### Added
+- Session continuity with `--continue` flag (conversations persist across messages)
+- `/new` command to reset session and start a fresh conversation
+- `/help` command with formatted command list and usage guide
+- Unknown command handler with `/help` suggestion
+- Pretty permission request messages with emoji tool icons and Markdown formatting
+- Tool name formatter: maps internal names to readable labels (e.g., `mcp__claude_ai_Slack__slack_send_message` → `💬 Slack → Send Message`)
+
+### Changed
+- All Telegram UI messages use Markdown formatting
+- Permission buttons styled with emoji: `✅ Allow` / `❌ Deny`
+- Approval/denial callback messages updated with bold status text
+
 ## [0.4.0] - 2026-03-16
 
 ### Added
-- Claude Code CLI 연동 (`claude -p` subprocess 호출)
-- Worker 패턴: 메시지 큐 + 단일 goroutine 순차 처리
-- claude.go: CLI executor (타임아웃, 모델 선택, 시스템 프롬프트 지원)
-- worker.go: 큐 관리, in-flight dedup (sync.Map), pending poll, stale recovery
-- 텔레그램 직접 전송 + outbox audit trail
-- 봇 시작 시 "processing" 상태 메시지 자동 복구
-- 환경변수: CLAUDE_CLI_PATH, CLAUDE_WORK_DIR, CLAUDE_TIMEOUT_SECONDS, CLAUDE_SYSTEM_PROMPT, CLAUDE_MODEL, WORKER_QUEUE_SIZE
+- Claude Code CLI integration (`claude -p` subprocess invocation)
+- Worker pattern: message queue + single goroutine sequential processing
+- `claude.go`: CLI executor with timeout, model selection, system prompt support
+- `worker.go`: queue management, in-flight dedup (`sync.Map`), pending poll, stale recovery
+- Two-phase permission flow: detect `permission_denials` → Telegram inline keyboard → re-execute with approval
+- Direct Telegram send + outbox audit trail
+- Stale message recovery on startup ("processing" → "pending")
+- Environment variables: `CLAUDE_CLI_PATH`, `CLAUDE_WORK_DIR`, `CLAUDE_TIMEOUT_SECONDS`, `CLAUDE_SYSTEM_PROMPT`, `CLAUDE_MODEL`, `WORKER_QUEUE_SIZE`
 
 ### Changed
-- Cowork 1분 스케줄 → 메시지 도착 즉시 CLI 호출 (응답 수초)
-- 결과 전송: outbox 폴링 대기 → 텔레그램 직접 전송 (실패 시 outbox fallback)
+- Replaced Cowork 1-minute schedule with instant CLI invocation (response in seconds)
+- Result delivery: direct Telegram send with outbox fallback on failure
 
 ## [0.3.0] - 2026-03-16
 
 ### Fixed
-- 텔레그램에 "(empty result)" 메시지가 전송되던 문제 수정
-- outbox.json 배열 형식 파싱 실패 문제 수정 (Cowork 호환)
-- 봇 다중 인스턴스 실행 시 충돌 문제 해결
+- "(empty result)" messages sent to Telegram
+- `outbox.json` array format parsing failure (Cowork compatibility)
+- Multiple bot instance conflict
 
 ### Removed
-- PollInboxDone 제거 - inbox/outbox 동시 폴링으로 인한 중복 전송 방지
+- `PollInboxDone` — eliminated duplicate sends from inbox/outbox concurrent polling
 
 ### Changed
-- outbox 빈 result 메시지는 전송하지 않고 skip
+- Outbox messages with empty result are skipped instead of sending "(empty result)"
 
 ## [0.2.0] - 2026-03-16
 
 ### Added
-- 파일 4개로 분리 (main.go, model.go, store.go, bot.go)
-- Lock file 메커니즘 (inbox.lock, PID/timestamp 기록, stale 감지)
-- 메시지 상태 5단계 (pending → processing → done → sent → error)
-- 자동 재시도 로직 (최대 3회, 초과 시 텔레그램 알림)
-- sync.Mutex + lock file 이중 동시성 보호
-- 구조화된 로깅 (slog, stdout + bot.log 동시 출력)
-- Graceful shutdown (SIGINT, SIGTERM)
-- 텔레그램 커맨드: /status, /clear, /retry
-- 환경변수 추가: LOCK_TIMEOUT_MINUTES, MAX_RETRY_COUNT, OUTBOX_POLL_INTERVAL_SECONDS, LOG_FILE
+- Refactored into 4 files: `main.go`, `model.go`, `store.go`, `bot.go`
+- Lock file mechanism (`inbox.lock` with PID/timestamp, stale detection)
+- 5-stage message status: pending → processing → done → sent → error
+- Auto-retry logic (max 3 attempts, Telegram notification on exhaustion)
+- Dual concurrency protection: `sync.Mutex` + lock file
+- Structured logging with `log/slog` (stdout + `bot.log`)
+- Graceful shutdown on SIGINT/SIGTERM
+- Telegram commands: `/status`, `/clear`, `/retry`
+- New environment variables: `LOCK_TIMEOUT_MINUTES`, `MAX_RETRY_COUNT`, `OUTBOX_POLL_INTERVAL_SECONDS`, `LOG_FILE`
 
 ### Changed
-- Go 모듈 경로를 github.com/GrapeInTheTree/claude-cowork-telegram으로 변경
-- 메시지 ID를 UnixMilli 기반으로 변경 (충돌 방지)
-- inbox.json 구조에 retry_count, last_error, telegram_message_id 필드 추가
+- Go module path set to `github.com/GrapeInTheTree/claude-cowork-telegram`
+- Message IDs use `UnixMilli` for collision prevention
+- `inbox.json` schema extended with `retry_count`, `last_error`, `telegram_message_id`
 
 ## [0.1.0] - 2026-03-16
 
 ### Added
-- 텔레그램 봇 초기 구현
-- 텔레그램 메시지 수신 → inbox.json 저장 (pending)
-- outbox.json 10초 폴링 → done 항목 텔레그램 전송 → sent 변경
-- TELEGRAM_CHAT_ID 기반 메시지 필터링
-- .env 환경변수 로드
-- .env.example 템플릿
+- Initial Telegram bot implementation
+- Receive messages → save to `inbox.json` (pending)
+- Poll `outbox.json` every 10 seconds → send done items to Telegram → mark sent
+- `TELEGRAM_CHAT_ID` filtering (ignore unauthorized chats)
+- `.env` file loading via godotenv
+- `.env.example` template

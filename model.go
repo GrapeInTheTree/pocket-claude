@@ -39,3 +39,16 @@ type LockInfo struct {
 	PID       int    `json:"pid"`
 	Timestamp string `json:"timestamp"`
 }
+
+// Claude CLI JSON output
+type CLIResult struct {
+	Type              string            `json:"type"`
+	Result            string            `json:"result"`
+	IsError           bool              `json:"is_error"`
+	SessionID         string            `json:"session_id"`
+	PermissionDenials []PermissionDenial `json:"permission_denials"`
+}
+
+type PermissionDenial struct {
+	ToolName string `json:"tool_name"`
+}

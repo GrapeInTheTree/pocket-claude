@@ -54,7 +54,7 @@ func main() {
 
 	// Claude CLI executor + worker
 	claude := NewClaudeExecutor(cfg, logger)
-	worker := NewWorker(cfg.WorkerQueueSize, claude, store, bot.sendMessage, logger)
+	worker := NewWorker(cfg.WorkerQueueSize, claude, store, bot.sendMessage, bot.sendApprovalRequest, logger)
 	bot.SetWorker(worker)
 
 	// Recover interrupted messages from previous run

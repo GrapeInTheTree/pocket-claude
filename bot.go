@@ -60,6 +60,13 @@ func (b *Bot) Listen(ctx context.Context) {
 				b.logger.Info("Updates channel closed")
 				return
 			}
+
+			// Handle callback queries (permission approval buttons)
+			if update.CallbackQuery != nil {
+				go b.handleCallback(update.CallbackQuery)
+				continue
+			}
+
 			if update.Message == nil {
 				continue
 			}
@@ -93,7 +100,6 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	}
 	b.logger.Info("Message saved to inbox", "id", inboxMsg.ID, "text", truncate(inboxMsg.Text, 50))
 
-	// Trigger Claude CLI processing immediately
 	if b.worker != nil {
 		if !b.worker.Enqueue(inboxMsg) {
 			b.logger.Error("Failed to enqueue message", "id", inboxMsg.ID)
@@ -101,10 +107,67 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	}
 }
 
+// --- Callback queries (permission approval) ---
+
+func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
+	data := cq.Data // "approve:msg_123" or "deny:msg_123"
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 {
+		return
+	}
+
+	action := parts[0]
+	approvalID := parts[1]
+	approved := action == "approve"
+
+	b.logger.Info("Permission callback received",
+		"approval_id", approvalID,
+		"approved", approved)
+
+	// Answer callback (remove loading indicator)
+	callback := tgbotapi.NewCallback(cq.ID, "")
+	b.api.Request(callback)
+
+	// Update the message to show result
+	var statusText string
+	if approved {
+		statusText = "✅ *Approved* — executing with permissions..."
+	} else {
+		statusText = "❌ *Denied* — request cancelled."
+	}
+	edit := tgbotapi.NewEditMessageText(cq.Message.Chat.ID, cq.Message.MessageID, statusText)
+	edit.ParseMode = "Markdown"
+	b.api.Send(edit)
+
+	// Resolve approval in worker
+	if b.worker != nil {
+		b.worker.ResolveApproval(approvalID, approved)
+	}
+}
+
+// sendApprovalRequest sends an inline keyboard message for permission approval.
+func (b *Bot) sendApprovalRequest(approvalID, text string) error {
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Allow", "approve:"+approvalID),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Deny", "deny:"+approvalID),
+		),
+	)
+	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	_, err := b.api.Send(msg)
+	return err
+}
+
 // --- Commands ---
 
 func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	switch msg.Command() {
+	case "help":
+		b.cmdHelp()
+	case "new":
+		b.cmdNew()
 	case "status":
 		b.cmdStatus()
 	case "clear":
@@ -112,8 +175,33 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	case "retry":
 		b.cmdRetry()
 	default:
-		b.sendMessage(fmt.Sprintf("Unknown command: /%s", msg.Command()))
+		b.sendMessage(fmt.Sprintf("Unknown command: /%s\nUse /help to see available commands.", msg.Command()))
 	}
+}
+
+func (b *Bot) cmdHelp() {
+	text := "🤖 *Cowork Telegram Bot*\n\n" +
+		"*Commands:*\n" +
+		"/help  — Show this help\n" +
+		"/new   — Start a new conversation\n" +
+		"/status — Message queue status\n" +
+		"/clear  — Clean up done/sent messages\n" +
+		"/retry  — Force retry error messages\n\n" +
+		"*How it works:*\n" +
+		"Send any message and Claude will process it.\n" +
+		"Conversations are continued automatically.\n" +
+		"Use /new to start fresh."
+	m := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
+	m.ParseMode = "Markdown"
+	b.api.Send(m)
+}
+
+func (b *Bot) cmdNew() {
+	if b.worker != nil {
+		b.worker.ResetSession()
+	}
+	m := tgbotapi.NewMessage(b.cfg.TelegramChatID, "🔄 New conversation started.")
+	b.api.Send(m)
 }
 
 func (b *Bot) cmdStatus() {
@@ -179,7 +267,7 @@ func (b *Bot) cmdRetry() {
 	}
 }
 
-// --- Workers ---
+// --- Outbox poller ---
 
 func (b *Bot) PollOutbox(ctx context.Context) {
 	b.wg.Add(1)
@@ -230,6 +318,8 @@ func (b *Bot) processOutbox() error {
 		return changed
 	})
 }
+
+// --- Retry processor ---
 
 func (b *Bot) ProcessRetries(ctx context.Context) {
 	b.wg.Add(1)

@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +19,9 @@ type ClaudeExecutor struct {
 	systemPrompt string
 	model        string
 	logger       *slog.Logger
+
+	mu          sync.Mutex
+	hasSession  bool // true after at least one successful execution
 }
 
 func NewClaudeExecutor(cfg Config, logger *slog.Logger) *ClaudeExecutor {
@@ -34,12 +39,25 @@ func NewClaudeExecutor(cfg Config, logger *slog.Logger) *ClaudeExecutor {
 	}
 }
 
-func (c *ClaudeExecutor) Execute(ctx context.Context, userMessage string) (string, error) {
+// Execute runs the Claude CLI. Uses --continue after the first call to maintain session.
+func (c *ClaudeExecutor) Execute(ctx context.Context, userMessage string, skipPermissions bool) (*CLIResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	args := []string{"-p", userMessage}
+	args := []string{"-p", userMessage, "--output-format", "json"}
 
+	// Continue session after first successful execution
+	c.mu.Lock()
+	shouldContinue := c.hasSession
+	c.mu.Unlock()
+
+	if shouldContinue {
+		args = append(args, "--continue")
+	}
+
+	if skipPermissions {
+		args = append(args, "--dangerously-skip-permissions")
+	}
 	if c.systemPrompt != "" {
 		args = append(args, "--system-prompt", c.systemPrompt)
 	}
@@ -56,35 +74,55 @@ func (c *ClaudeExecutor) Execute(ctx context.Context, userMessage string) (strin
 
 	c.logger.Info("Claude CLI executing",
 		"prompt", truncate(userMessage, 80),
-		"timeout", c.timeout.String())
+		"continue", shouldContinue,
+		"skip_permissions", skipPermissions)
 
 	start := time.Now()
 
 	if err := cmd.Run(); err != nil {
 		elapsed := time.Since(start)
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("timeout after %s", c.timeout)
+			return nil, fmt.Errorf("timeout after %s", c.timeout)
 		}
 		errMsg := strings.TrimSpace(stderr.String())
 		if errMsg == "" {
 			errMsg = err.Error()
 		}
-		c.logger.Error("Claude CLI failed",
-			"elapsed", elapsed.String(),
-			"error", errMsg)
-		return "", fmt.Errorf("CLI error: %s", errMsg)
+		c.logger.Error("Claude CLI failed", "elapsed", elapsed.String(), "error", errMsg)
+		return nil, fmt.Errorf("CLI error: %s", errMsg)
 	}
 
-	result := strings.TrimSpace(stdout.String())
 	elapsed := time.Since(start)
+
+	var result CLIResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		result = CLIResult{
+			Result: strings.TrimSpace(stdout.String()),
+		}
+	}
 
 	c.logger.Info("Claude CLI completed",
 		"elapsed", elapsed.String(),
-		"result_len", len(result))
+		"result_len", len(result.Result),
+		"permission_denials", len(result.PermissionDenials),
+		"session_id", result.SessionID)
 
-	if result == "" {
-		return "", fmt.Errorf("empty response from Claude CLI")
+	if result.Result == "" && !result.IsError {
+		return nil, fmt.Errorf("empty response from Claude CLI")
 	}
 
-	return result, nil
+	// Mark session as active
+	c.mu.Lock()
+	c.hasSession = true
+	c.mu.Unlock()
+
+	return &result, nil
+}
+
+// ResetSession clears the session so the next call starts fresh.
+func (c *ClaudeExecutor) ResetSession() {
+	c.mu.Lock()
+	c.hasSession = false
+	c.mu.Unlock()
+	c.logger.Info("Session reset, next message will start a new conversation")
 }
