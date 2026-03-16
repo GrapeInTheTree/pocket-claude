@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-03-16
+
+### Fixed
+- Telegram Markdown parsing errors in permission messages (fallback to plain text)
+- Duplicate bot instances causing "Conflict: terminated by other getUpdates request"
+
+### Added
+- PID file (`bot.pid`) for single instance enforcement; auto-kills previous on start
+- `cowork-bot` binary build target for reliable process management
+
+## [0.7.0] - 2026-03-16
+
+### Added
+- Photo and document attachment support — send images or files via Telegram for Claude to analyze
+- Telegram photos downloaded to temp files and passed to Claude CLI for multimodal processing
+- Caption support: use photo caption as prompt, defaults to "Analyze this image"
+
 ## [0.6.0] - 2026-03-16
 
 ### Added

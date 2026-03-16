@@ -16,7 +16,9 @@ Telegram → Go Bot → inbox.json → Worker → claude -p (subprocess) → Tel
 
 - **Worker**: Single goroutine processing messages from a buffered channel. Calls `claude -p` and sends results back to Telegram.
 - **Session**: Uses `--continue` flag to maintain conversation context. `ResetSession()` clears it. `--resume <id>` to switch to a previous session. Last 10 sessions tracked.
-- **Permissions**: Two-phase execution. First run with default permissions, check `permission_denials` in JSON output, ask user via Telegram inline keyboard, re-run with `--dangerously-skip-permissions` if approved.
+- **Permissions**: Two-phase execution. First run with default permissions, check `permission_denials` in JSON output, ask user via Telegram inline keyboard, re-run with `--dangerously-skip-permissions` if approved. Markdown fallback on parse errors.
+- **Media**: Photos and documents downloaded from Telegram to `/tmp`, file path passed to Claude CLI for multimodal analysis.
+- **Single Instance**: PID file (`bot.pid`) ensures only one bot runs; auto-kills previous on start.
 
 ## File Responsibilities
 

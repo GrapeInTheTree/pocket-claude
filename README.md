@@ -12,6 +12,8 @@ A Telegram bot that bridges [Claude Code CLI](https://docs.anthropic.com/en/docs
 - **Model Switching** — Change models on the fly with `/model sonnet` or `/model opus`
 - **MCP Tool Access** — Slack, Notion, Gmail, and any MCP server configured in Claude Code
 - **Extended Directory Access** — Access files outside the project via `CLAUDE_ADD_DIRS`
+- **Photo & File Support** — Send photos, screenshots, or documents via Telegram for Claude to analyze (multimodal)
+- **Single Instance Guard** — PID file prevents duplicate bot instances; auto-kills previous on start
 - **Retry & Recovery** — Automatic retry on failure (max 3), stale message recovery on restart, failure notifications
 - **Audit Trail** — All messages and results logged in `inbox.json` / `outbox.json`
 - **Structured Logging** — Logs to both stdout and file with timestamps and levels
@@ -19,11 +21,12 @@ A Telegram bot that bridges [Claude Code CLI](https://docs.anthropic.com/en/docs
 ## Architecture
 
 ```
-Telegram (phone)
+Telegram (phone) — text, photos, files
     ↕  HTTPS Long Polling
-Go Bot (local machine)
+Go Bot (local machine, single instance via PID file)
     ├─ Save to inbox.json (pending)
-    ├─ Worker → claude -p (subprocess)
+    ├─ Download attachments to /tmp (if photo/file)
+    ├─ Worker → claude -p (subprocess, --continue for session)
     │   ├─ Permission denied? → Ask user via Telegram inline keyboard
     │   └─ Approved? → Re-execute with permissions
     └─ Send result to Telegram + record in outbox.json
@@ -92,13 +95,15 @@ CLAUDE_MODEL=                   # Model override: sonnet, opus, etc.
 ### Run
 
 ```bash
-# Development
-go run .
-
-# Build and run
+# Build and run (recommended)
 go build -o cowork-bot
 ./cowork-bot
+
+# Or run directly (development only)
+go run .
 ```
+
+> **Note:** Using the built binary is recommended over `go run .` for reliable process management. The PID file (`bot.pid`) ensures only one instance runs at a time — restarting automatically kills the previous instance.
 
 ### Set up BotFather commands (optional)
 
@@ -135,15 +140,16 @@ retry - Force retry error messages
 ### Message Flow
 
 ```
-1. You send a message on Telegram
-2. Bot saves it to inbox.json with status "pending"
-3. Worker picks it up, sets status to "processing"
-4. Worker calls: claude -p "your message" --output-format json --continue
-5. If permission denied → sends inline keyboard [Allow] [Deny]
+1. You send a message (text, photo, or file) on Telegram
+2. If photo/file: bot downloads it to a temp file
+3. Bot saves message to inbox.json with status "pending"
+4. Worker picks it up, sets status to "processing"
+5. Worker calls: claude -p "your message" --output-format json --continue
+6. If permission denied → sends inline keyboard [Allow] [Deny]
    - Allow → re-runs with --dangerously-skip-permissions
    - Deny  → returns partial result
-6. Result sent to Telegram, status set to "sent"
-7. Result also recorded in outbox.json for audit
+7. Result sent to Telegram, status set to "sent"
+8. Result also recorded in outbox.json for audit
 ```
 
 ### Message Status Lifecycle
