@@ -31,11 +31,10 @@ type Executor struct {
 	addDirs      []string
 	logger       *slog.Logger
 
-	mu         sync.Mutex
-	hasSession bool
-	model      string
-	resumeID   string
-	sessions   []SessionInfo
+	mu               sync.Mutex
+	currentSessionID string // explicit session ID — never uses --continue
+	model            string
+	sessions         []SessionInfo
 }
 
 func NewExecutor(cfg config.Config, logger *slog.Logger) *Executor {
@@ -72,16 +71,13 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 	args := []string{"-p", userMessage, "--output-format", "json"}
 
 	e.mu.Lock()
-	shouldContinue := e.hasSession
+	sessionID := e.currentSessionID
 	model := e.model
-	resumeID := e.resumeID
-	e.resumeID = ""
 	e.mu.Unlock()
 
-	if resumeID != "" {
-		args = append(args, "--resume", resumeID)
-	} else if shouldContinue {
-		args = append(args, "--continue")
+	// Always use --resume with explicit session ID (never --continue)
+	if sessionID != "" {
+		args = append(args, "--resume", sessionID)
 	}
 
 	if skipPermissions {
@@ -106,8 +102,7 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 
 	e.logger.Info("Claude CLI executing",
 		"prompt", truncate(userMessage, 80),
-		"continue", shouldContinue,
-		"resume", resumeID,
+		"session", sessionID,
 		"skip_permissions", skipPermissions,
 		"model", model)
 
@@ -145,12 +140,13 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 		return nil, fmt.Errorf("empty response from Claude CLI")
 	}
 
-	e.mu.Lock()
-	e.hasSession = true
+	// Track session: always use the returned session ID for next call
 	if result.SessionID != "" {
+		e.mu.Lock()
+		e.currentSessionID = result.SessionID
 		e.trackSession(result.SessionID, userMessage)
+		e.mu.Unlock()
 	}
-	e.mu.Unlock()
 
 	return &result, nil
 }
@@ -171,18 +167,20 @@ func (e *Executor) trackSession(id, firstMsg string) {
 	}
 }
 
+// ResetSession clears the current session so next message starts fresh.
 func (e *Executor) ResetSession() {
 	e.mu.Lock()
-	e.hasSession = false
+	e.currentSessionID = ""
 	e.mu.Unlock()
 	e.logger.Info("Session reset")
 }
 
+// SetResumeID switches to a specific session.
 func (e *Executor) SetResumeID(id string) {
 	e.mu.Lock()
-	e.resumeID = id
-	e.hasSession = true
+	e.currentSessionID = id
 	e.mu.Unlock()
+	e.logger.Info("Switched to session", "session_id", id)
 }
 
 func (e *Executor) GetSessions() []SessionInfo {
