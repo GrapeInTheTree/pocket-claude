@@ -178,18 +178,42 @@ func (s *Store) ClearCompleted() (int, error) {
 // --- Outbox ---
 
 func (s *Store) readOutbox() (OutboxFile, error) {
-	var mf OutboxFile
 	data, err := os.ReadFile(s.outboxPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return OutboxFile{Messages: []OutboxMessage{}}, nil
 		}
-		return mf, err
+		return OutboxFile{}, err
 	}
-	if err := json.Unmarshal(data, &mf); err != nil {
-		return mf, err
+
+	// 1) 정상 형식: {"messages": [...]}
+	var mf OutboxFile
+	if err := json.Unmarshal(data, &mf); err == nil {
+		return mf, nil
 	}
-	return mf, nil
+
+	// 2) Cowork가 배열로 쓴 경우: [{...}, {...}, ...]
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return OutboxFile{}, fmt.Errorf("outbox parse error: %w", err)
+	}
+
+	var messages []OutboxMessage
+	for _, item := range raw {
+		// 각 항목이 {"messages": [...]} 형태일 수도 있고 bare 메시지일 수도 있음
+		var nested OutboxFile
+		if json.Unmarshal(item, &nested) == nil && len(nested.Messages) > 0 {
+			messages = append(messages, nested.Messages...)
+			continue
+		}
+		var msg OutboxMessage
+		if json.Unmarshal(item, &msg) == nil && msg.ID != "" {
+			messages = append(messages, msg)
+		}
+	}
+
+	s.logger.Warn("Outbox had non-standard format, normalized", "raw_items", len(raw), "messages", len(messages))
+	return OutboxFile{Messages: messages}, nil
 }
 
 func (s *Store) writeOutbox(mf OutboxFile) error {

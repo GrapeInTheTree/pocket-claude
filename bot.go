@@ -202,7 +202,8 @@ func (b *Bot) processOutbox() error {
 
 			text := mf.Messages[i].Result
 			if text == "" {
-				text = "(empty result)"
+				b.logger.Debug("Skipping outbox message with empty result", "id", mf.Messages[i].ID)
+				continue
 			}
 
 			if err := b.sendMessage(text); err != nil {
@@ -213,58 +214,6 @@ func (b *Bot) processOutbox() error {
 			mf.Messages[i].Status = StatusSent
 			changed = true
 			b.logger.Info("Outbox message sent", "id", mf.Messages[i].ID)
-		}
-		return changed
-	})
-}
-
-func (b *Bot) PollInboxDone(ctx context.Context) {
-	b.wg.Add(1)
-	defer b.wg.Done()
-
-	interval := time.Duration(b.cfg.OutboxPollIntervalSec) * time.Second
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	b.logger.Info("Inbox done-poller started", "interval", interval.String())
-
-	for {
-		select {
-		case <-ctx.Done():
-			b.logger.Info("Stopping inbox done-poller")
-			return
-		case <-ticker.C:
-			if err := b.processInboxDone(); err != nil {
-				b.logger.Error("Inbox done processing error", "error", err)
-			}
-		}
-	}
-}
-
-func (b *Bot) processInboxDone() error {
-	return b.store.UpdateInbox(func(mf *InboxFile) bool {
-		changed := false
-		for i := range mf.Messages {
-			if mf.Messages[i].Status != StatusDone {
-				continue
-			}
-
-			text := mf.Messages[i].Result
-			if text == "" {
-				text = "(empty result)"
-			}
-
-			if err := b.sendMessage(text); err != nil {
-				b.logger.Error("Failed to send inbox result", "id", mf.Messages[i].ID, "error", err)
-				mf.Messages[i].Status = StatusError
-				mf.Messages[i].LastError = err.Error()
-				changed = true
-				continue
-			}
-
-			mf.Messages[i].Status = StatusSent
-			changed = true
-			b.logger.Info("Inbox result sent", "id", mf.Messages[i].ID)
 		}
 		return changed
 	})

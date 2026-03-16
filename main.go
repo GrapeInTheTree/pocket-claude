@@ -45,7 +45,6 @@ func main() {
 	}
 
 	go bot.PollOutbox(ctx)
-	go bot.PollInboxDone(ctx)
 	go bot.ProcessRetries(ctx)
 	go bot.Listen(ctx)
 
