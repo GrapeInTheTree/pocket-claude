@@ -31,6 +31,7 @@ type Worker struct {
 	cancelMu      sync.Mutex
 	currentCancel context.CancelFunc
 	currentMsgID  string
+	cancelled     bool // true if current message was cancelled by /cancel
 }
 
 func New(
@@ -104,12 +105,14 @@ func (w *Worker) process(ctx context.Context, msg store.InboxMessage) {
 	w.cancelMu.Lock()
 	w.currentCancel = cancel
 	w.currentMsgID = msg.ID
+	w.cancelled = false
 	w.cancelMu.Unlock()
 	defer func() {
 		cancel()
 		w.cancelMu.Lock()
 		w.currentCancel = nil
 		w.currentMsgID = ""
+		w.cancelled = false
 		w.cancelMu.Unlock()
 	}()
 
@@ -155,6 +158,17 @@ func (w *Worker) handleError(msgID, msgText string, err error) {
 	errStr := err.Error()
 	w.logger.Error("Processing failed", "id", msgID, "error", errStr)
 
+	// Check if this was a user-initiated /cancel
+	w.cancelMu.Lock()
+	wasCancelled := w.cancelled
+	w.cancelMu.Unlock()
+
+	if wasCancelled {
+		w.logger.Info("Message cancelled by user", "id", msgID)
+		w.updateInboxStatus(msgID, store.StatusFailed, "", "cancelled by user")
+		return
+	}
+
 	// Classify error: restart kills don't count toward retry limit
 	if isRestartError(errStr) {
 		w.logger.Info("Restart-related error, will retry once without counting", "id", msgID)
@@ -198,6 +212,7 @@ func (w *Worker) CancelCurrent() (string, bool) {
 	w.cancelMu.Lock()
 	defer w.cancelMu.Unlock()
 	if w.currentCancel != nil {
+		w.cancelled = true
 		w.currentCancel()
 		return w.currentMsgID, true
 	}
