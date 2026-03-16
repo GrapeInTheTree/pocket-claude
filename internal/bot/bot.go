@@ -53,6 +53,9 @@ func (b *Bot) SendMessage(text string) error {
 // SendApprovalRequest sends an inline keyboard for permission approval.
 // Falls back to plain text if Markdown parsing fails.
 func (b *Bot) SendApprovalRequest(approvalID, text string) error {
+	// Sanitize UTF-8 to prevent Telegram API rejection
+	text = strings.ToValidUTF8(text, "")
+
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("✅ Allow", "approve:"+approvalID),
@@ -73,7 +76,7 @@ func (b *Bot) SendApprovalRequest(approvalID, text string) error {
 }
 
 func (b *Bot) sendMessage(text string) error {
-	return b.SendMessage(text)
+	return b.SendMessage(strings.ToValidUTF8(text, ""))
 }
 
 func (b *Bot) sendMarkdown(text string) error {

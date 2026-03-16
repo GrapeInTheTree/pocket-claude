@@ -5,9 +5,18 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/store"
 )
+
+// sanitizeUTF8 removes invalid UTF-8 bytes from a string.
+func sanitizeUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	return strings.ToValidUTF8(s, "")
+}
 
 func (w *Worker) requestApproval(ctx context.Context, msgID string, result *store.CLIResult) (bool, error) {
 	ch := make(chan bool, 1)
@@ -81,7 +90,7 @@ func buildPermissionMessage(result *store.CLIResult) string {
 	}
 
 	if result.Result != "" {
-		escaped := EscapeMD(Truncate(result.Result, 150))
+		escaped := sanitizeUTF8(EscapeMD(Truncate(result.Result, 150)))
 		sb.WriteString(fmt.Sprintf("\n💬 Claude: %s\n", escaped))
 	}
 
