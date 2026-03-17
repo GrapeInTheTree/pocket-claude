@@ -38,7 +38,7 @@ Think of it as SSH-ing into Claude Code, but through Telegram.
 - **Single Instance Guard** — PID file prevents duplicate instances; auto-kills previous on start
 - **Typing Indicator** — "typing..." shown in Telegram while Claude processes
 - **Multi-Project Support** — Switch between repos at runtime via `/project`, search for git repos with `/project search`, each with isolated sessions and cost tracking
-- **Plan Usage Tracking** — Per-project turns, messages, and cost via `/usage` and `/project info`
+- **Usage Tracking** — Per-project messages and API-equivalent cost via `/usage` and `/project info`
 - **Queue Notifications** — "Queued (#N)" when worker is busy with another request
 - **Structured Logging** — Logs to both stdout and file with timestamps and levels
 
@@ -154,7 +154,7 @@ retry - Force retry error messages
 | `/project rename <old> <new>` | Rename a project |
 | `/project remove <name>` | Remove a project |
 | `/cancel` | Cancel the currently processing message |
-| `/usage` | Show token cost and message count (per project) |
+| `/usage` | Show API-equivalent cost and message count (per project) |
 | `/status` | Show message queue status |
 | `/clear` | Remove completed/failed/expired messages |
 | `/retry` | Force retry error and failed messages |
@@ -240,6 +240,13 @@ Work across multiple repositories without restarting the bot. Each project gets 
 You: "Run the tests"                      <-- Executes in my-app's directory
 /project default                          <-- Switch back, session preserved
 /usage                                    <-- Shows cost for active project
+```
+
+**Other project commands:**
+```
+/project info                             <-- Current project details + usage
+/project rename my-app frontend           <-- Rename without re-adding
+/project remove api                       <-- Remove (can't remove active/default)
 ```
 
 Projects persist to `projects.json` and survive bot restarts.

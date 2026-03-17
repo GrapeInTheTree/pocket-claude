@@ -26,7 +26,7 @@ Telegram --> Go Bot --> inbox.json --> Worker --> ProjectManager --> claude -p -
 - **Single Instance**: PID file (`bot.pid`) ensures only one bot runs; auto-kills previous on start.
 - **Concurrency**: Goroutine spawning bounded by semaphore (max 10). All Telegram messages UTF-8 sanitized.
 - **Typing Indicator**: Sends Telegram "typing..." action every 4 seconds while processing. Stops on completion.
-- **Plan Usage Tracking**: Parses `total_cost_usd` and `num_turns` from Claude CLI JSON output. Tracks per-project turns, messages, and cost. `/usage` and `/project info` show plan-friendly stats. Session counters reset on `/new` or project switch.
+- **Usage Tracking**: Parses `total_cost_usd` from Claude CLI JSON output. Tracks per-project messages and API-equivalent cost. `/usage` and `/project info` show stats. Session cost resets on `/new` or project switch.
 
 ## Project Layout
 
@@ -37,7 +37,7 @@ internal/
   store/models.go                    # Data types, 7 statuses (pending/processing/done/sent/error/failed/expired)
   store/store.go                     # JSON file I/O, sync.Mutex, lock file
   bot/bot.go                         # Telegram listener, callback handler (project/resume/approval), outbox poller
-  bot/commands.go                    # 12 commands: /help /new /name /btw /resume /model /cancel /usage /status /clear /retry /project (add/remove/search/switch)
+  bot/commands.go                    # 12 commands: /help /new /name /btw /resume /model /cancel /usage /status /clear /retry /project (info/add/search/rename/remove/switch)
   bot/media.go                       # Photo/document download with HTTP status validation
   claude/executor.go                 # Claude CLI execution, --resume session tracking, --name, model switching
   project/types.go                   # ProjectConfig, ProjectsFile, ProjectUsage types
