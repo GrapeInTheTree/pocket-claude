@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/config"
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/store"
+	"github.com/GrapeInTheTree/pocket-claude/internal/config"
+	"github.com/GrapeInTheTree/pocket-claude/internal/store"
 )
 
 type SessionInfo struct {

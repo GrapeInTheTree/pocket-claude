@@ -1,6 +1,6 @@
-# Cowork Telegram Bot
+# Pocket Claude
 
-A Telegram bot that bridges [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) with Telegram, enabling you to interact with Claude from your phone. Send a message on Telegram, and Claude processes it instantly using the `claude -p` CLI — including full access to MCP tools like Slack, Notion, Gmail, and more.
+Your personal AI assistant in your pocket. A Telegram bot that bridges [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) with Telegram, enabling you to interact with Claude from your phone. Send a message, photo, or file on Telegram, and Claude processes it instantly — including full access to MCP tools like Slack, Notion, Gmail, and more.
 
 ## Features
 
@@ -45,8 +45,8 @@ Go Bot (local machine, single instance via PID file)
 ### Installation
 
 ```bash
-git clone https://github.com/GrapeInTheTree/claude-cowork-telegram.git
-cd claude-cowork-telegram
+git clone https://github.com/GrapeInTheTree/pocket-claude.git
+cd pocket-claude
 go mod download
 ```
 
@@ -98,11 +98,11 @@ CLAUDE_MODEL=                   # Model override: sonnet, opus, etc.
 
 ```bash
 # Build and run (recommended)
-go build -o cowork-bot ./cmd/cowork-bot/
-./cowork-bot
+go build -o pocket-claude ./cmd/pocket-claude/
+./pocket-claude
 
 # Or run directly (development only)
-go run ./cmd/cowork-bot/
+go run ./cmd/pocket-claude/
 ```
 
 > **Note:** Using the built binary is recommended over `go run` for reliable process management. The PID file (`bot.pid`) ensures only one instance runs — restarting automatically kills the previous instance.
@@ -230,9 +230,9 @@ When Claude needs tools that require approval (file writes, bash commands, etc.)
 ## Project Structure
 
 ```
-claude-cowork-telegram/
+pocket-claude/
 ├── cmd/
-│   └── cowork-bot/
+│   └── pocket-claude/
 │       └── main.go              # Entry point, wiring, graceful shutdown
 ├── internal/
 │   ├── config/
@@ -259,7 +259,7 @@ claude-cowork-telegram/
 
 ## Auto-Start on macOS (optional)
 
-Create `~/Library/LaunchAgents/com.cowork.telegram.plist`:
+Create `~/Library/LaunchAgents/com.pocket-claude.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -268,27 +268,27 @@ Create `~/Library/LaunchAgents/com.cowork.telegram.plist`:
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.cowork.telegram</string>
+  <string>com.pocket-claude</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/path/to/cowork-bot</string>
+    <string>/path/to/pocket-claude</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/path/to/claude-cowork-telegram</string>
+  <string>/path/to/pocket-claude</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/tmp/cowork-telegram.log</string>
+  <string>/tmp/pocket-claude.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/cowork-telegram.err</string>
+  <string>/tmp/pocket-claude.err</string>
 </dict>
 </plist>
 ```
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.cowork.telegram.plist
+launchctl load ~/Library/LaunchAgents/com.pocket-claude.plist
 ```
 
 ## Security

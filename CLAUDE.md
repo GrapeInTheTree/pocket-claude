@@ -24,7 +24,7 @@ Telegram → Go Bot → inbox.json → Worker → claude -p --resume <id> → Te
 ## Project Structure
 
 ```
-cmd/cowork-bot/main.go           # Entry point, wiring
+cmd/pocket-claude/main.go           # Entry point, wiring
 internal/
   config/config.go               # Config, logger, PID file
   store/models.go                # Data types (7 statuses: pending/processing/done/sent/error/failed/expired)
@@ -40,9 +40,9 @@ internal/
 ## Build & Run
 
 ```bash
-go build -o cowork-bot ./cmd/cowork-bot/   # build
+go build -o pocket-claude ./cmd/pocket-claude/   # build
 go vet ./...                                # lint
-./cowork-bot                                # run
+./pocket-claude                                # run
 ```
 
 ## Key Design Decisions

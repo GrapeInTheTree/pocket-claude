@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/store"
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/worker"
+	"github.com/GrapeInTheTree/pocket-claude/internal/store"
+	"github.com/GrapeInTheTree/pocket-claude/internal/worker"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 

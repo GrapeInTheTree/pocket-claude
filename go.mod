@@ -1,4 +1,4 @@
-module github.com/GrapeInTheTree/claude-cowork-telegram
+module github.com/GrapeInTheTree/pocket-claude
 
 go 1.25.4
 

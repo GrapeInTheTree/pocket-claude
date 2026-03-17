@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/store"
+	"github.com/GrapeInTheTree/pocket-claude/internal/store"
 )
 
 // sanitizeUTF8 removes invalid UTF-8 bytes from a string.

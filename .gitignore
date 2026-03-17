@@ -2,6 +2,7 @@
 bot.log
 bot.pid
 *.lock
-/cowork-bot
-/claude-cowork-telegram
-/cowork-telegram-bot
+/pocket-claude
+
+# Skill eval test (isolated experiment - no impact on project)
+skill-eval-test/

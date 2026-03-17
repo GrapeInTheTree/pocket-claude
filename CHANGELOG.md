@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **Project structure**: Migrated to `cmd/internal` Go project layout
-  - `cmd/cowork-bot/main.go` — minimal entry point
+  - `cmd/pocket-claude/main.go` — minimal entry point
   - `internal/config` — configuration, logger, PID file
   - `internal/store` — data models, file I/O with locking
   - `internal/bot` — Telegram handlers, commands (3 files), media download

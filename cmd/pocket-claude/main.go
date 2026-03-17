@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/bot"
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/claude"
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/config"
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/store"
-	"github.com/GrapeInTheTree/claude-cowork-telegram/internal/worker"
+	"github.com/GrapeInTheTree/pocket-claude/internal/bot"
+	"github.com/GrapeInTheTree/pocket-claude/internal/claude"
+	"github.com/GrapeInTheTree/pocket-claude/internal/config"
+	"github.com/GrapeInTheTree/pocket-claude/internal/store"
+	"github.com/GrapeInTheTree/pocket-claude/internal/worker"
 )
 
 func main() {
