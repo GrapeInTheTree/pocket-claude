@@ -61,6 +61,27 @@ func (b *Bot) SendMessage(text string) error {
 	return err
 }
 
+// SendTyping sends a "typing..." indicator to the chat.
+// Call in a goroutine with a ticker; stops when context is cancelled.
+func (b *Bot) SendTyping(ctx context.Context) {
+	ticker := time.NewTicker(4 * time.Second)
+	defer ticker.Stop()
+
+	// Send immediately
+	action := tgbotapi.NewChatAction(b.cfg.TelegramChatID, tgbotapi.ChatTyping)
+	b.api.Send(action)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			action := tgbotapi.NewChatAction(b.cfg.TelegramChatID, tgbotapi.ChatTyping)
+			b.api.Send(action)
+		}
+	}
+}
+
 // SendApprovalRequest sends an inline keyboard for permission approval.
 // Falls back to plain text if Markdown parsing fails.
 func (b *Bot) SendApprovalRequest(approvalID, text string) error {

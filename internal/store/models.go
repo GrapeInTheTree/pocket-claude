@@ -62,6 +62,9 @@ type CLIResult struct {
 	IsError           bool               `json:"is_error"`
 	SessionID         string             `json:"session_id"`
 	PermissionDenials []PermissionDenial `json:"permission_denials"`
+	TotalCostUSD      float64            `json:"total_cost_usd"`
+	DurationMs        int                `json:"duration_ms"`
+	NumTurns          int                `json:"num_turns"`
 }
 
 type PermissionDenial struct {

@@ -48,7 +48,7 @@ func main() {
 	// Worker
 	messageTTL := time.Duration(cfg.MessageTTLMinutes) * time.Minute
 	w := worker.New(cfg.WorkerQueueSize, cfg.MaxRetryCount, messageTTL,
-		exec, st, b.SendMessage, b.SendApprovalRequest, logger)
+		exec, st, b.SendMessage, b.SendApprovalRequest, b.SendTyping, logger)
 	b.SetWorker(w)
 
 	// Recover stale messages

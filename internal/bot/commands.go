@@ -26,6 +26,8 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.cmdModel(msg.CommandArguments())
 	case "cancel":
 		b.cmdCancel()
+	case "usage":
+		b.cmdUsage()
 	case "status":
 		b.cmdStatus()
 	case "clear":
@@ -48,6 +50,7 @@ func (b *Bot) cmdHelp() {
 		"/cancel — Cancel current processing\n\n" +
 		"*Queue:*\n" +
 		"/status — Message queue status\n" +
+		"/usage — Token cost tracking\n" +
 		"/clear — Clean up completed messages\n" +
 		"/retry — Force retry error messages\n\n" +
 		"*How it works:*\n" +
@@ -60,6 +63,7 @@ func (b *Bot) cmdHelp() {
 func (b *Bot) cmdNew() {
 	if b.worker != nil {
 		b.worker.ResetSession()
+		b.worker.ResetSessionUsage()
 	}
 	b.sendMessage("🔄 New conversation started.")
 }
@@ -207,6 +211,22 @@ func (b *Bot) cmdCancel() {
 	} else {
 		b.sendMessage("Nothing is being processed right now.")
 	}
+}
+
+func (b *Bot) cmdUsage() {
+	if b.worker == nil {
+		return
+	}
+
+	totalCost, sessionCost, msgCount := b.worker.GetUsage()
+	text := fmt.Sprintf(
+		"📊 Usage Stats\n\n"+
+			"  Messages processed : %d\n"+
+			"  Session cost       : $%.4f\n"+
+			"  Total cost         : $%.4f\n\n"+
+			"(Since bot started. Resets on restart.)",
+		msgCount, sessionCost, totalCost)
+	b.sendMessage(text)
 }
 
 func (b *Bot) cmdStatus() {

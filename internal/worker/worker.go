@@ -21,6 +21,7 @@ type Worker struct {
 	store          *store.Store
 	sendFn         func(string) error
 	sendApprovalFn func(approvalID, text string) error
+	sendTypingFn   func(ctx context.Context)
 	logger         *slog.Logger
 	wg             sync.WaitGroup
 
@@ -31,7 +32,13 @@ type Worker struct {
 	cancelMu      sync.Mutex
 	currentCancel context.CancelFunc
 	currentMsgID  string
-	cancelled     bool // true if current message was cancelled by /cancel
+	cancelled     bool
+
+	// Usage tracking
+	usageMu        sync.Mutex
+	totalCostUSD   float64
+	totalMessages  int
+	sessionCostUSD float64
 }
 
 func New(
@@ -42,6 +49,7 @@ func New(
 	st *store.Store,
 	sendFn func(string) error,
 	sendApprovalFn func(approvalID, text string) error,
+	sendTypingFn func(ctx context.Context),
 	logger *slog.Logger,
 ) *Worker {
 	return &Worker{
@@ -50,6 +58,7 @@ func New(
 		store:           st,
 		sendFn:          sendFn,
 		sendApprovalFn:  sendApprovalFn,
+		sendTypingFn:    sendTypingFn,
 		logger:          logger,
 		approvalTimeout: 2 * time.Minute,
 		messageTTL:      messageTTL,
@@ -81,7 +90,11 @@ func (w *Worker) Enqueue(msg store.InboxMessage) bool {
 
 	select {
 	case w.queue <- msg:
-		w.logger.Info("Enqueued", "id", msg.ID, "queue_len", len(w.queue))
+		queueLen := len(w.queue)
+		w.logger.Info("Enqueued", "id", msg.ID, "queue_len", queueLen)
+		if queueLen > 0 {
+			w.sendFn(fmt.Sprintf("📋 Queued (#%d). Processing another request...", queueLen))
+		}
 		return true
 	default:
 		w.inFlight.Delete(msg.ID)
@@ -119,6 +132,11 @@ func (w *Worker) process(ctx context.Context, msg store.InboxMessage) {
 	w.logger.Info("Processing started", "id", msg.ID)
 	w.updateInboxStatus(msg.ID, store.StatusProcessing, "", "")
 
+	// Start typing indicator
+	typingCtx, stopTyping := context.WithCancel(ctx)
+	go w.sendTypingFn(typingCtx)
+	defer stopTyping()
+
 	// Phase 1: Execute with default permissions
 	result, err := w.claude.Execute(ctx, msg.Text, false)
 	if err != nil {
@@ -151,7 +169,33 @@ func (w *Worker) process(ctx context.Context, msg store.InboxMessage) {
 		}
 	}
 
+	w.trackUsage(result)
 	w.sendAndRecord(msg.ID, result.Result)
+}
+
+func (w *Worker) trackUsage(result *store.CLIResult) {
+	if result == nil {
+		return
+	}
+	w.usageMu.Lock()
+	defer w.usageMu.Unlock()
+	w.totalCostUSD += result.TotalCostUSD
+	w.sessionCostUSD += result.TotalCostUSD
+	w.totalMessages++
+}
+
+// GetUsage returns current usage stats.
+func (w *Worker) GetUsage() (totalCost float64, sessionCost float64, msgCount int) {
+	w.usageMu.Lock()
+	defer w.usageMu.Unlock()
+	return w.totalCostUSD, w.sessionCostUSD, w.totalMessages
+}
+
+// ResetSessionUsage resets the per-session cost counter.
+func (w *Worker) ResetSessionUsage() {
+	w.usageMu.Lock()
+	w.sessionCostUSD = 0
+	w.usageMu.Unlock()
 }
 
 func (w *Worker) handleError(msgID, msgText string, err error) {
