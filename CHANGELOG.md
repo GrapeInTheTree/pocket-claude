@@ -5,10 +5,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Typing indicator: "typing..." shown in Telegram while Claude processes
+- `/usage` command: shows messages processed, session cost, total cost
+- Queue notifications: "Queued (#N)" when worker is busy with another request
+- `CLIResult` extended with `TotalCostUSD`, `DurationMs`, `NumTurns` fields
+
 ### Changed
 - Renamed project from `claude-cowork-telegram` to `pocket-claude`
 - Go module path: `github.com/GrapeInTheTree/pocket-claude`
 - Binary: `pocket-claude`
+- Default `MAX_RETRY_COUNT`: 3 → 2
+- Default `CLAUDE_TIMEOUT_SECONDS`: 120 → 600 (10 min)
 
 ## [1.1.0] - 2026-03-16
 

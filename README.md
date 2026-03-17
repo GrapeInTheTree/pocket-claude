@@ -36,6 +36,9 @@ Think of it as SSH-ing into Claude Code, but through Telegram.
 - **Message TTL** — Auto-expire stale messages (default 10 min), preventing retry loops
 - **Smart Error Handling** — Restart kills retry silently; real errors notify and retry up to 3x
 - **Single Instance Guard** — PID file prevents duplicate instances; auto-kills previous on start
+- **Typing Indicator** — "typing..." shown in Telegram while Claude processes
+- **Cost Tracking** — Per-session and total cost tracking via `/usage`
+- **Queue Notifications** — "Queued (#N)" when worker is busy with another request
 - **Structured Logging** — Logs to both stdout and file with timestamps and levels
 
 ## Architecture
@@ -122,6 +125,7 @@ resume - Resume a previous session
 btw - Add context note
 model - Switch AI model
 cancel - Cancel current processing
+usage - Token cost tracking
 status - Message queue status
 clear - Clean up completed messages
 retry - Force retry error messages
@@ -138,6 +142,7 @@ retry - Force retry error messages
 | `/btw <note>` | Add context note without full processing |
 | `/model <name>` | Switch model (sonnet, opus, haiku) |
 | `/cancel` | Cancel the currently processing message |
+| `/usage` | Show token cost and message count |
 | `/status` | Show message queue status |
 | `/clear` | Remove completed/failed/expired messages |
 | `/retry` | Force retry error and failed messages |

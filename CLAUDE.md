@@ -23,6 +23,8 @@ Telegram --> Go Bot --> inbox.json --> Worker --> claude -p --resume <id> --> Te
 - **TTL**: Messages older than `MESSAGE_TTL_MINUTES` auto-expire. Restart-caused errors (`signal: killed`) retry silently. User-initiated `/cancel` marks as `failed` permanently.
 - **Single Instance**: PID file (`bot.pid`) ensures only one bot runs; auto-kills previous on start.
 - **Concurrency**: Goroutine spawning bounded by semaphore (max 10). All Telegram messages UTF-8 sanitized.
+- **Typing Indicator**: Sends Telegram "typing..." action every 4 seconds while processing. Stops on completion.
+- **Cost Tracking**: Parses `total_cost_usd` from Claude CLI JSON output. Tracks per-session and total cost. `/usage` command. Resets session cost on `/new`.
 
 ## Project Layout
 
@@ -33,7 +35,7 @@ internal/
   store/models.go                    # Data types, 7 statuses (pending/processing/done/sent/error/failed/expired)
   store/store.go                     # JSON file I/O, sync.Mutex, lock file
   bot/bot.go                         # Telegram listener, callback handler, outbox poller
-  bot/commands.go                    # 10 commands: /help /new /name /btw /resume /model /cancel /status /clear /retry
+  bot/commands.go                    # 11 commands: /help /new /name /btw /resume /model /cancel /usage /status /clear /retry
   bot/media.go                       # Photo/document download with HTTP status validation
   claude/executor.go                 # Claude CLI execution, --resume session tracking, --name, model switching
   worker/worker.go                   # Message queue, TTL check, error classification, cancel detection, retry
