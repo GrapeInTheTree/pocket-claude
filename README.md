@@ -87,13 +87,13 @@ cp .env.example .env
 | `INBOX_PATH` | `./inbox.json` | Incoming message store |
 | `OUTBOX_PATH` | `./outbox.json` | Outgoing result store |
 | `LOCK_TIMEOUT_MINUTES` | `5` | Stale lock detection threshold |
-| `MAX_RETRY_COUNT` | `3` | Max retries for failed messages |
+| `MAX_RETRY_COUNT` | `2` | Max retries for failed messages |
 | `OUTBOX_POLL_INTERVAL_SECONDS` | `10` | Outbox polling interval |
 | `LOG_FILE` | `./bot.log` | Log file path |
 | `MESSAGE_TTL_MINUTES` | `10` | Auto-expire messages older than this |
 | `CLAUDE_CLI_PATH` | `claude` | Claude CLI binary path |
 | `CLAUDE_WORK_DIR` | `.` | Working directory for CLI |
-| `CLAUDE_TIMEOUT_SECONDS` | `120` | CLI execution timeout |
+| `CLAUDE_TIMEOUT_SECONDS` | `600` | CLI execution timeout (10 min) |
 | `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
 | `CLAUDE_MODEL` | *(none)* | Model override (e.g., `sonnet`, `opus`) |
 | `CLAUDE_ADD_DIRS` | `~` | Extra directories Claude can access |
@@ -164,7 +164,7 @@ retry - Force retry error messages
 ```
 pending --> processing --> sent
     |            |
- expired       error --> (auto-retry up to 3x) --> pending
+ expired       error --> (auto-retry up to 2x) --> pending
                  |
               failed --> (permanent, /retry to reset)
 ```
@@ -220,7 +220,7 @@ When Claude needs tools that require approval:
 |---|---|
 | `signal: killed` (restart) | Silent retry, no notification |
 | `/cancel` | Mark as `failed`, no retry |
-| Timeout / CLI error | Notify user, auto-retry up to 3x |
+| Timeout / CLI error | Notify user, auto-retry up to 2x |
 | Max retries exceeded | Mark as `failed`, notify user |
 | Message too old (TTL) | Mark as `expired`, skip silently |
 

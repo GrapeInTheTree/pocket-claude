@@ -83,13 +83,13 @@ Goroutine spawning for callbacks/messages bounded by semaphore (max 10). Falls b
 | `INBOX_PATH` | `./inbox.json` | Incoming messages |
 | `OUTBOX_PATH` | `./outbox.json` | Outgoing results |
 | `LOCK_TIMEOUT_MINUTES` | `5` | Stale lock threshold |
-| `MAX_RETRY_COUNT` | `3` | Error retry limit |
+| `MAX_RETRY_COUNT` | `2` | Error retry limit |
 | `OUTBOX_POLL_INTERVAL_SECONDS` | `10` | Outbox poll interval |
 | `LOG_FILE` | `./bot.log` | Log file path |
 | `MESSAGE_TTL_MINUTES` | `10` | Message expiry time |
 | `CLAUDE_CLI_PATH` | `claude` | CLI binary path |
 | `CLAUDE_WORK_DIR` | `.` | CLI working directory |
-| `CLAUDE_TIMEOUT_SECONDS` | `120` | CLI execution timeout |
+| `CLAUDE_TIMEOUT_SECONDS` | `600` | CLI execution timeout (10 min) |
 | `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
 | `CLAUDE_MODEL` | *(none)* | Model override |
 | `CLAUDE_ADD_DIRS` | `~` | Extra directories for CLI access |
