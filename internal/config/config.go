@@ -31,6 +31,7 @@ type Config struct {
 	CLIModel        string
 	CLIAddDirs      string
 	WorkerQueueSize int
+	ProjectsFile    string
 }
 
 func Load() Config {
@@ -55,6 +56,7 @@ func Load() Config {
 		CLIModel:        os.Getenv("CLAUDE_MODEL"),
 		CLIAddDirs:      envOrDefault("CLAUDE_ADD_DIRS", "~"),
 		WorkerQueueSize: envIntOrDefault("WORKER_QUEUE_SIZE", 100),
+		ProjectsFile:    envOrDefault("PROJECTS_FILE", "./projects.json"),
 	}
 
 	chatIDStr := mustEnv("TELEGRAM_CHAT_ID")

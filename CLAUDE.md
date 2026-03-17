@@ -9,22 +9,24 @@ Project context for Claude Code when working in this repository.
 ## Architecture
 
 ```
-Telegram --> Go Bot --> inbox.json --> Worker --> claude -p --resume <id> --> Telegram
-                                          |
-                                  Permission flow via inline keyboard
+Telegram --> Go Bot --> inbox.json --> Worker --> ProjectManager --> claude -p --resume <id> --> Telegram
+                                          |            |
+                                  Permission flow   Per-project executor routing
+                                  via inline keyboard
 ```
 
 **Key components:**
 
+- **ProjectManager**: Owns per-project `Executor` instances. Routes all CLI calls to the active project. Persists config to `projects.json`. Switched via `/project` command.
 - **Worker**: Single goroutine, sequential processing from a buffered channel. Prevents concurrent `claude -p` calls.
-- **Session**: Explicit `--resume <session_id>` tracking. Never uses `--continue` (prevents conflicts with Claude Code terminal in same directory).
+- **Session**: Explicit `--resume <session_id>` tracking per project. Never uses `--continue` (prevents conflicts with Claude Code terminal in same directory).
 - **Permissions**: Two-phase execution. Phase 1: default permissions, check `permission_denials` in JSON output. Phase 2 (if approved): re-run with `--dangerously-skip-permissions`. Markdown fallback on parse errors.
 - **Media**: Photos/documents downloaded from Telegram to `/tmp`, file path passed to Claude CLI for multimodal analysis.
 - **TTL**: Messages older than `MESSAGE_TTL_MINUTES` auto-expire. Restart-caused errors (`signal: killed`) retry silently. User-initiated `/cancel` marks as `failed` permanently.
 - **Single Instance**: PID file (`bot.pid`) ensures only one bot runs; auto-kills previous on start.
 - **Concurrency**: Goroutine spawning bounded by semaphore (max 10). All Telegram messages UTF-8 sanitized.
 - **Typing Indicator**: Sends Telegram "typing..." action every 4 seconds while processing. Stops on completion.
-- **Cost Tracking**: Parses `total_cost_usd` from Claude CLI JSON output. Tracks per-session and total cost. `/usage` command. Resets session cost on `/new`.
+- **Plan Usage Tracking**: Parses `total_cost_usd` and `num_turns` from Claude CLI JSON output. Tracks per-project turns, messages, and cost. `/usage` and `/project info` show plan-friendly stats. Session counters reset on `/new` or project switch.
 
 ## Project Layout
 
@@ -34,10 +36,12 @@ internal/
   config/config.go                   # Config, env loading, logger, PID file
   store/models.go                    # Data types, 7 statuses (pending/processing/done/sent/error/failed/expired)
   store/store.go                     # JSON file I/O, sync.Mutex, lock file
-  bot/bot.go                         # Telegram listener, callback handler, outbox poller
-  bot/commands.go                    # 11 commands: /help /new /name /btw /resume /model /cancel /usage /status /clear /retry
+  bot/bot.go                         # Telegram listener, callback handler (project/resume/approval), outbox poller
+  bot/commands.go                    # 12 commands: /help /new /name /btw /resume /model /cancel /usage /status /clear /retry /project (add/remove/search/switch)
   bot/media.go                       # Photo/document download with HTTP status validation
   claude/executor.go                 # Claude CLI execution, --resume session tracking, --name, model switching
+  project/types.go                   # ProjectConfig, ProjectsFile, ProjectUsage types
+  project/manager.go                 # Multi-project manager: per-project executor routing, persistence
   worker/worker.go                   # Message queue, TTL check, error classification, cancel detection, retry
   worker/approval.go                 # Permission approval flow, tool name formatting, UTF-8 escape
 ```
@@ -69,10 +73,13 @@ Messages older than `MESSAGE_TTL_MINUTES` → auto `expired`. Prevents stale ret
 ### Bounded concurrency
 Goroutine spawning for callbacks/messages bounded by semaphore (max 10). Falls back to synchronous execution when limit reached.
 
+### Multi-project support
+Each project gets its own `Executor` with independent session, workDir, and addDirs. `ProjectManager` replaces the single executor in the Worker. Projects persist to `projects.json`. Default project auto-created from `CLAUDE_WORK_DIR` on first run. `/project` command for add/remove/switch via inline keyboard. `/project search <keyword>` scans home directory (depth 3) for git repos matching keyword, shows results as inline buttons for one-tap add. Path validation on add (must be existing directory).
+
 ## Important Notes
 
 - Only ONE bot instance at a time (Telegram Long Polling + PID file)
-- Never commit `.env`, `inbox.json`, `outbox.json`, `bot.log`, `*.lock`, `bot.pid`
+- Never commit `.env`, `inbox.json`, `outbox.json`, `bot.log`, `*.lock`, `bot.pid`, `projects.json`
 - `inbox.json` / `outbox.json` may contain personal data
 - Session files stored in `~/.claude/projects/` (managed by Claude CLI, do not modify)
 
@@ -96,3 +103,4 @@ Goroutine spawning for callbacks/messages bounded by semaphore (max 10). Falls b
 | `CLAUDE_MODEL` | *(none)* | Model override |
 | `CLAUDE_ADD_DIRS` | `~` | Extra directories for CLI access |
 | `WORKER_QUEUE_SIZE` | `100` | Worker queue capacity |
+| `PROJECTS_FILE` | `./projects.json` | Project persistence file |

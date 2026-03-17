@@ -23,6 +23,7 @@ type InboxMessage struct {
 	LastError         string `json:"last_error,omitempty"`
 	TelegramMessageID int    `json:"telegram_message_id,omitempty"`
 	Result            string `json:"result,omitempty"`
+	Project           string `json:"project,omitempty"`
 }
 
 // Age returns the duration since the message was created.

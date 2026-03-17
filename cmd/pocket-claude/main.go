@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/GrapeInTheTree/pocket-claude/internal/bot"
-	"github.com/GrapeInTheTree/pocket-claude/internal/claude"
 	"github.com/GrapeInTheTree/pocket-claude/internal/config"
+	"github.com/GrapeInTheTree/pocket-claude/internal/project"
 	"github.com/GrapeInTheTree/pocket-claude/internal/store"
 	"github.com/GrapeInTheTree/pocket-claude/internal/worker"
 )
@@ -42,13 +42,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Claude executor
-	exec := claude.NewExecutor(cfg, logger)
+	// Project manager (replaces single executor)
+	pm := project.NewManager(cfg, logger)
 
 	// Worker
 	messageTTL := time.Duration(cfg.MessageTTLMinutes) * time.Minute
 	w := worker.New(cfg.WorkerQueueSize, cfg.MaxRetryCount, messageTTL,
-		exec, st, b.SendMessage, b.SendApprovalRequest, b.SendTyping, logger)
+		pm, st, b.SendMessage, b.SendApprovalRequest, b.SendTyping, logger)
 	b.SetWorker(w)
 
 	// Recover stale messages

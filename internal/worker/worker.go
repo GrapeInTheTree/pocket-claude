@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/GrapeInTheTree/pocket-claude/internal/claude"
+	"github.com/GrapeInTheTree/pocket-claude/internal/project"
 	"github.com/GrapeInTheTree/pocket-claude/internal/store"
 )
 
@@ -17,7 +18,7 @@ type Worker struct {
 	inFlight  sync.Map
 	approvals sync.Map
 
-	claude         *claude.Executor
+	projects       *project.Manager
 	store          *store.Store
 	sendFn         func(string) error
 	sendApprovalFn func(approvalID, text string) error
@@ -33,19 +34,13 @@ type Worker struct {
 	currentCancel context.CancelFunc
 	currentMsgID  string
 	cancelled     bool
-
-	// Usage tracking
-	usageMu        sync.Mutex
-	totalCostUSD   float64
-	totalMessages  int
-	sessionCostUSD float64
 }
 
 func New(
 	queueSize int,
 	maxRetry int,
 	messageTTL time.Duration,
-	claude *claude.Executor,
+	projects *project.Manager,
 	st *store.Store,
 	sendFn func(string) error,
 	sendApprovalFn func(approvalID, text string) error,
@@ -54,7 +49,7 @@ func New(
 ) *Worker {
 	return &Worker{
 		queue:           make(chan store.InboxMessage, queueSize),
-		claude:          claude,
+		projects:        projects,
 		store:           st,
 		sendFn:          sendFn,
 		sendApprovalFn:  sendApprovalFn,
@@ -138,7 +133,7 @@ func (w *Worker) process(ctx context.Context, msg store.InboxMessage) {
 	defer stopTyping()
 
 	// Phase 1: Execute with default permissions
-	result, err := w.claude.Execute(ctx, msg.Text, false)
+	result, err := w.projects.Execute(ctx, msg.Text, false)
 	if err != nil {
 		w.handleError(msg.ID, msg.Text, err)
 		return
@@ -162,40 +157,25 @@ func (w *Worker) process(ctx context.Context, msg store.InboxMessage) {
 		}
 
 		w.logger.Info("User approved, re-executing", "id", msg.ID)
-		result, err = w.claude.Execute(ctx, msg.Text, true)
+		result, err = w.projects.Execute(ctx, msg.Text, true)
 		if err != nil {
 			w.handleError(msg.ID, msg.Text, err)
 			return
 		}
 	}
 
-	w.trackUsage(result)
+	w.projects.TrackUsage(result)
 	w.sendAndRecord(msg.ID, result.Result)
 }
 
-func (w *Worker) trackUsage(result *store.CLIResult) {
-	if result == nil {
-		return
-	}
-	w.usageMu.Lock()
-	defer w.usageMu.Unlock()
-	w.totalCostUSD += result.TotalCostUSD
-	w.sessionCostUSD += result.TotalCostUSD
-	w.totalMessages++
+// GetUsage returns current usage stats from the active project.
+func (w *Worker) GetUsage() *project.ProjectUsage {
+	return w.projects.GetUsage()
 }
 
-// GetUsage returns current usage stats.
-func (w *Worker) GetUsage() (totalCost float64, sessionCost float64, msgCount int) {
-	w.usageMu.Lock()
-	defer w.usageMu.Unlock()
-	return w.totalCostUSD, w.sessionCostUSD, w.totalMessages
-}
-
-// ResetSessionUsage resets the per-session cost counter.
+// ResetSessionUsage resets the per-session cost counter for the active project.
 func (w *Worker) ResetSessionUsage() {
-	w.usageMu.Lock()
-	w.sessionCostUSD = 0
-	w.usageMu.Unlock()
+	w.projects.ResetSessionUsage()
 }
 
 func (w *Worker) handleError(msgID, msgText string, err error) {
@@ -394,13 +374,29 @@ func (w *Worker) Stop() {
 
 // --- Delegated methods ---
 
-func (w *Worker) ResetSession()                     { w.claude.ResetSession() }
-func (w *Worker) SetModel(model string)              { w.claude.SetModel(model) }
-func (w *Worker) GetModel() string                   { return w.claude.GetModel() }
-func (w *Worker) GetSessions() []claude.SessionInfo  { return w.claude.GetSessions() }
-func (w *Worker) ResumeSession(id string)            { w.claude.SetResumeID(id) }
-func (w *Worker) SetSessionName(name string)         { w.claude.SetSessionName(name) }
-func (w *Worker) GetCurrentSessionID() string        { return w.claude.GetCurrentSessionID() }
+func (w *Worker) ResetSession()                     { w.projects.ResetSession() }
+func (w *Worker) SetModel(model string)              { w.projects.SetModel(model) }
+func (w *Worker) GetModel() string                   { return w.projects.GetModel() }
+func (w *Worker) GetSessions() []claude.SessionInfo  { return w.projects.GetSessions() }
+func (w *Worker) ResumeSession(id string)            { w.projects.SetResumeID(id) }
+func (w *Worker) SetSessionName(name string)         { w.projects.SetSessionName(name) }
+func (w *Worker) GetCurrentSessionID() string        { return w.projects.GetCurrentSessionID() }
+
+// --- Project delegation ---
+
+func (w *Worker) ActiveProject() string { return w.projects.ActiveProject() }
+func (w *Worker) SwitchProject(name string) error { return w.projects.SwitchProject(name) }
+func (w *Worker) AddProject(name, workDir string) error { return w.projects.AddProject(name, workDir) }
+func (w *Worker) RemoveProject(name string) error { return w.projects.RemoveProject(name) }
+func (w *Worker) RenameProject(oldName, newName string) error {
+	return w.projects.RenameProject(oldName, newName)
+}
+func (w *Worker) ListProjects() (string, map[string]project.ProjectConfig) {
+	return w.projects.ListProjects()
+}
+func (w *Worker) GetProjectInfo() (project.ProjectConfig, *project.ProjectUsage, int) {
+	return w.projects.GetProjectInfo()
+}
 
 // --- helpers ---
 

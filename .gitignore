@@ -2,6 +2,9 @@
 bot.log
 bot.pid
 *.lock
+inbox.json
+outbox.json
+projects.json
 /pocket-claude
 
 # Skill eval test (isolated experiment - no impact on project)

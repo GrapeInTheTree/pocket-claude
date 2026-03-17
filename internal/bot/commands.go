@@ -2,9 +2,13 @@ package bot
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/GrapeInTheTree/pocket-claude/internal/project"
 	"github.com/GrapeInTheTree/pocket-claude/internal/store"
 	"github.com/GrapeInTheTree/pocket-claude/internal/worker"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -34,6 +38,8 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.cmdClear()
 	case "retry":
 		b.cmdRetry()
+	case "project":
+		b.cmdProject(msg.CommandArguments())
 	default:
 		b.sendMessage(fmt.Sprintf("Unknown command: /%s\nUse /help to see available commands.", msg.Command()))
 	}
@@ -48,6 +54,13 @@ func (b *Bot) cmdHelp() {
 		"/btw `<note>` — Add context without processing\n" +
 		"/model `<name>` — Switch model (sonnet, opus, haiku)\n" +
 		"/cancel — Cancel current processing\n\n" +
+		"*Project:*\n" +
+		"/project — Switch project (inline keyboard)\n" +
+		"/project info — Current project details\n" +
+		"/project add `<name>` `<path>` — Add project\n" +
+		"/project search `<keyword>` — Find git repos to add\n" +
+		"/project rename `<old>` `<new>` — Rename project\n" +
+		"/project remove `<name>` — Remove project\n\n" +
 		"*Queue:*\n" +
 		"/status — Message queue status\n" +
 		"/usage — Token cost tracking\n" +
@@ -75,12 +88,18 @@ func (b *Bot) cmdBtw(msg *tgbotapi.Message) {
 		return
 	}
 
+	var projectName string
+	if b.worker != nil {
+		projectName = b.worker.ActiveProject()
+	}
+
 	inboxMsg := store.InboxMessage{
 		ID:                fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
 		Text:              "[BTW context note, just acknowledge briefly] " + text,
 		Status:            store.StatusPending,
 		Timestamp:         time.Now().UTC().Format(time.RFC3339),
 		TelegramMessageID: msg.MessageID,
+		Project:           projectName,
 	}
 
 	if err := b.store.AppendToInbox(inboxMsg); err != nil {
@@ -218,15 +237,20 @@ func (b *Bot) cmdUsage() {
 		return
 	}
 
-	totalCost, sessionCost, msgCount := b.worker.GetUsage()
+	u := b.worker.GetUsage()
+	projectName := b.worker.ActiveProject()
 	text := fmt.Sprintf(
-		"📊 Usage Stats\n\n"+
-			"  Messages processed : %d\n"+
-			"  Session cost       : $%.4f\n"+
-			"  Total cost         : $%.4f\n\n"+
-			"(Since bot started. Resets on restart.)",
-		msgCount, sessionCost, totalCost)
-	b.sendMessage(text)
+		"📊 *Usage* [%s]\n\n"+
+			"*Session*\n"+
+			"  Cost : $%.4f\n\n"+
+			"*Total (since restart)*\n"+
+			"  Messages : %d\n"+
+			"  Cost     : $%.4f\n\n"+
+			"_Estimated API-equivalent cost._",
+		projectName,
+		u.SessionCostUSD,
+		u.TotalMessages, u.TotalCostUSD)
+	b.sendMarkdown(text)
 }
 
 func (b *Bot) cmdStatus() {
@@ -264,6 +288,191 @@ func (b *Bot) cmdClear() {
 		return
 	}
 	b.sendMessage(fmt.Sprintf("Cleared %d completed messages.", removed))
+}
+
+func (b *Bot) cmdProject(args string) {
+	if b.worker == nil {
+		return
+	}
+
+	args = strings.TrimSpace(args)
+
+	// /project add <name> <path>
+	if strings.HasPrefix(args, "add ") {
+		parts := strings.Fields(args)
+		if len(parts) < 3 {
+			b.sendMessage("Usage: /project add <name> <path>\nExample: /project add my-app /Users/me/my-app")
+			return
+		}
+		name := parts[1]
+		path := parts[2]
+		if err := b.worker.AddProject(name, path); err != nil {
+			b.sendMessage("Failed: " + err.Error())
+			return
+		}
+		b.sendMessage(fmt.Sprintf("✅ Project \"%s\" added (%s)", name, path))
+		return
+	}
+
+	// /project remove <name>
+	if strings.HasPrefix(args, "remove ") {
+		parts := strings.Fields(args)
+		if len(parts) < 2 {
+			b.sendMessage("Usage: /project remove <name>")
+			return
+		}
+		name := parts[1]
+		if err := b.worker.RemoveProject(name); err != nil {
+			b.sendMessage("Failed: " + err.Error())
+			return
+		}
+		b.sendMessage(fmt.Sprintf("🗑 Project \"%s\" removed.", name))
+		return
+	}
+
+	// /project rename <old> <new>
+	if strings.HasPrefix(args, "rename ") {
+		parts := strings.Fields(args)
+		if len(parts) < 3 {
+			b.sendMessage("Usage: /project rename <old-name> <new-name>")
+			return
+		}
+		oldName, newName := parts[1], parts[2]
+		if err := b.worker.RenameProject(oldName, newName); err != nil {
+			b.sendMessage("Failed: " + err.Error())
+			return
+		}
+		b.sendMessage(fmt.Sprintf("✏️ Project \"%s\" renamed to \"%s\"", oldName, newName))
+		return
+	}
+
+	// /project info
+	if args == "info" {
+		pc, u, sessionCount := b.worker.GetProjectInfo()
+		home, _ := os.UserHomeDir()
+		displayPath := pc.WorkDir
+		if home != "" && strings.HasPrefix(displayPath, home) {
+			displayPath = "~" + displayPath[len(home):]
+		}
+		text := fmt.Sprintf(
+			"📂 *Project: %s*\n\n"+
+				"📁 Path: `%s`\n"+
+				"🗂 Sessions: %d\n\n"+
+				"*Session cost*: $%.4f\n\n"+
+				"*Total usage*\n"+
+				"  Messages : %d\n"+
+				"  Cost     : $%.4f\n\n"+
+				"_Estimated API-equivalent cost. Since bot started._",
+			pc.Name, displayPath, sessionCount,
+			u.SessionCostUSD,
+			u.TotalMessages, u.TotalCostUSD)
+		b.sendMarkdown(text)
+		return
+	}
+
+	// /project search <keyword>
+	if strings.HasPrefix(args, "search ") {
+		keyword := strings.TrimSpace(strings.TrimPrefix(args, "search"))
+		if keyword == "" {
+			b.sendMessage("Usage: /project search <keyword>\nExample: /project search my-app")
+			return
+		}
+		b.cmdProjectSearch(keyword)
+		return
+	}
+
+	// /project list — explicit list
+	if args == "list" {
+		args = ""
+		// fall through to show keyboard
+	}
+
+	// /project <name> — direct switch
+	if args != "" {
+		if err := b.worker.SwitchProject(args); err != nil {
+			b.sendMessage("Failed: " + err.Error())
+			return
+		}
+		b.sendMessage(fmt.Sprintf("📂 Switched to project \"%s\"", args))
+		return
+	}
+
+	// /project — show inline keyboard
+	active, projects := b.worker.ListProjects()
+	home, _ := os.UserHomeDir()
+
+	// Sort project names for stable button order, active first
+	names := make([]string, 0, len(projects))
+	for name := range projects {
+		if name != active {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	names = append([]string{active}, names...)
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, name := range names {
+		pc := projects[name]
+		displayPath := pc.WorkDir
+		if home != "" && strings.HasPrefix(displayPath, home) {
+			displayPath = "~" + displayPath[len(home):]
+		}
+		var label string
+		if name == active {
+			label = fmt.Sprintf("▶ %s  (%s)", name, worker.Truncate(displayPath, 30))
+		} else {
+			label = fmt.Sprintf("   %s  (%s)", name, worker.Truncate(displayPath, 30))
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, "project:"+name),
+		))
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	text := fmt.Sprintf("📂 *Projects* (%d)\n\nActive: *%s*\nTap to switch:", len(projects), active)
+	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	if _, err := b.api.Send(msg); err != nil {
+		msg.ParseMode = ""
+		b.api.Send(msg)
+	}
+}
+
+func (b *Bot) cmdProjectSearch(keyword string) {
+	results := project.SearchRepos(keyword, 8)
+	if len(results) == 0 {
+		b.sendMessage(fmt.Sprintf("No git repos found matching \"%s\".\nTry a different keyword, or add manually:\n/project add <name> <path>", keyword))
+		return
+	}
+
+	home, _ := os.UserHomeDir()
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, path := range results {
+		name := filepath.Base(path)
+		// Show shortened path: ~/sub/repo instead of /Users/.../sub/repo
+		displayPath := path
+		if home != "" && strings.HasPrefix(path, home) {
+			displayPath = "~" + path[len(home):]
+		}
+		label := fmt.Sprintf("+ %s  (%s)", name, worker.Truncate(displayPath, 35))
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, "project_add:"+name+"|"+path),
+		))
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	text := fmt.Sprintf("🔍 *Found %d repo(s)* matching \"%s\"\n\nTap to add as project:", len(results), keyword)
+	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	if _, err := b.api.Send(msg); err != nil {
+		// Markdown fallback
+		msg.ParseMode = ""
+		b.api.Send(msg)
+	}
 }
 
 func (b *Bot) cmdRetry() {

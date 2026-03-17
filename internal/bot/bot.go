@@ -218,12 +218,18 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
+	var projectName string
+	if b.worker != nil {
+		projectName = b.worker.ActiveProject()
+	}
+
 	inboxMsg := store.InboxMessage{
 		ID:                fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
 		Text:              text,
 		Status:            store.StatusPending,
 		Timestamp:         time.Now().UTC().Format(time.RFC3339),
 		TelegramMessageID: msg.MessageID,
+		Project:           projectName,
 	}
 
 	if err := b.store.AppendToInbox(inboxMsg); err != nil {
@@ -250,6 +256,46 @@ func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
 	// Acknowledge callback immediately
 	if _, err := b.api.Request(tgbotapi.NewCallback(cq.ID, "")); err != nil {
 		b.logger.Error("Failed to acknowledge callback", "error", err)
+	}
+
+	// Handle project search result → add project
+	if action == "project_add" {
+		parts := strings.SplitN(value, "|", 2)
+		if len(parts) != 2 {
+			return
+		}
+		name, path := parts[0], parts[1]
+		if b.worker != nil {
+			if err := b.worker.AddProject(name, path); err != nil {
+				edit := tgbotapi.NewEditMessageText(cq.Message.Chat.ID, cq.Message.MessageID,
+					fmt.Sprintf("❌ Failed to add: %s", err.Error()))
+				b.api.Send(edit)
+				return
+			}
+		}
+		edit := tgbotapi.NewEditMessageText(cq.Message.Chat.ID, cq.Message.MessageID,
+			fmt.Sprintf("✅ Project \"%s\" added\n📁 %s\n\nUse /project %s to switch.", name, path, name))
+		b.api.Send(edit)
+		return
+	}
+
+	// Handle project switch callback
+	if action == "project" {
+		if b.worker != nil {
+			if err := b.worker.SwitchProject(value); err != nil {
+				b.logger.Error("Project switch failed", "error", err)
+				edit := tgbotapi.NewEditMessageText(cq.Message.Chat.ID, cq.Message.MessageID,
+					fmt.Sprintf("❌ Switch failed: %s", err.Error()))
+				b.api.Send(edit)
+				return
+			}
+		}
+		edit := tgbotapi.NewEditMessageText(cq.Message.Chat.ID, cq.Message.MessageID,
+			fmt.Sprintf("📂 Switched to \"%s\"\nNew messages will run in this project.", value))
+		if _, err := b.api.Send(edit); err != nil {
+			b.logger.Error("Failed to edit project message", "error", err)
+		}
+		return
 	}
 
 	// Handle resume session callback

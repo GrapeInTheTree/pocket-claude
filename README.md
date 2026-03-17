@@ -37,7 +37,8 @@ Think of it as SSH-ing into Claude Code, but through Telegram.
 - **Smart Error Handling** — Restart kills retry silently; real errors notify and retry up to 3x
 - **Single Instance Guard** — PID file prevents duplicate instances; auto-kills previous on start
 - **Typing Indicator** — "typing..." shown in Telegram while Claude processes
-- **Cost Tracking** — Per-session and total cost tracking via `/usage`
+- **Multi-Project Support** — Switch between repos at runtime via `/project`, search for git repos with `/project search`, each with isolated sessions and cost tracking
+- **Plan Usage Tracking** — Per-project turns, messages, and cost via `/usage` and `/project info`
 - **Queue Notifications** — "Queued (#N)" when worker is busy with another request
 - **Structured Logging** — Logs to both stdout and file with timestamps and levels
 
@@ -50,7 +51,10 @@ Telegram (phone) — text, photos, files
 Go Bot (local machine, single instance via PID file)
     |-- Save to inbox.json (pending)
     |-- Download attachments to /tmp (if photo/file)
-    |-- Worker --> claude -p --resume <session_id> (subprocess)
+    |-- Worker --> ProjectManager --> claude -p --resume <session_id> (subprocess)
+    |       |          |-- projects["default"]  → Executor (workDir: "./")
+    |       |          |-- projects["my-app"]   → Executor (workDir: "/path/to/my-app")
+    |       |          '-- projects["api"]      → Executor (workDir: "/path/to/api")
     |       |-- Permission denied? --> Inline keyboard [Allow] [Deny]
     |       '-- Approved? --> Re-execute with --dangerously-skip-permissions
     '-- Send result to Telegram + record in outbox.json (audit)
@@ -101,6 +105,7 @@ cp .env.example .env
 | `CLAUDE_MODEL` | *(none)* | Model override (e.g., `sonnet`, `opus`) |
 | `CLAUDE_ADD_DIRS` | `~` | Extra directories Claude can access |
 | `WORKER_QUEUE_SIZE` | `100` | Processing queue capacity |
+| `PROJECTS_FILE` | `./projects.json` | Project persistence file |
 
 </details>
 
@@ -124,6 +129,7 @@ name - Rename current session
 resume - Resume a previous session
 btw - Add context note
 model - Switch AI model
+project - Switch, search, or manage projects
 cancel - Cancel current processing
 usage - Token cost tracking
 status - Message queue status
@@ -141,8 +147,14 @@ retry - Force retry error messages
 | `/resume` | Select a previous session via inline buttons |
 | `/btw <note>` | Add context note without full processing |
 | `/model <name>` | Switch model (sonnet, opus, haiku) |
+| `/project` | Switch project via inline buttons |
+| `/project info` | Current project details + usage |
+| `/project add <name> <path>` | Add a new project (validates path) |
+| `/project search <keyword>` | Search git repos and add via buttons |
+| `/project rename <old> <new>` | Rename a project |
+| `/project remove <name>` | Remove a project |
 | `/cancel` | Cancel the currently processing message |
-| `/usage` | Show token cost and message count |
+| `/usage` | Show token cost and message count (per project) |
 | `/status` | Show message queue status |
 | `/clear` | Remove completed/failed/expired messages |
 | `/retry` | Force retry error and failed messages |
@@ -198,6 +210,40 @@ Bot: "DM sent!"
 /resume                                  <-- See all sessions, tap to switch
 ```
 
+### Multi-Project Support
+
+Work across multiple repositories without restarting the bot. Each project gets its own sessions, working directory, and cost tracking.
+
+**Search and add repos:**
+```
+/project search my-app                    <-- Scans ~/... for git repos
+  🔍 Found 2 repo(s) matching "my-app"
+  Tap to add as project:
+  [+ my-app  (~/projects/my-app)]
+  [+ my-app-v2  (~/work/my-app-v2)]       <-- Tap to add instantly
+```
+
+**Or add manually:**
+```
+/project add api /Users/me/api-server     <-- Path is validated
+```
+
+**Switch between projects:**
+```
+/project                                  <-- Inline keyboard
+  📂 Projects (2)
+  Active: default
+  [▶ default  (.)]
+  [   my-app  (~/projects/my-app)]
+
+/project my-app                           <-- Or direct switch by name
+You: "Run the tests"                      <-- Executes in my-app's directory
+/project default                          <-- Switch back, session preserved
+/usage                                    <-- Shows cost for active project
+```
+
+Projects persist to `projects.json` and survive bot restarts.
+
 ### Permission System
 
 When Claude needs tools that require approval:
@@ -244,10 +290,13 @@ pocket-claude/
 |   |   +-- store.go             # JSON file I/O, mutex, lock file
 |   +-- bot/
 |   |   +-- bot.go               # Telegram listener, callbacks, outbox poller
-|   |   +-- commands.go          # 10 commands with inline keyboards
+|   |   +-- commands.go          # 12 commands with inline keyboards
 |   |   +-- media.go             # Photo/document download
 |   +-- claude/
 |   |   +-- executor.go          # CLI execution, --resume session tracking
+|   +-- project/
+|   |   +-- types.go             # ProjectConfig, ProjectsFile, ProjectUsage types
+|   |   +-- manager.go           # Multi-project executor routing, persistence
 |   +-- worker/
 |       +-- worker.go            # Message queue, TTL, error classification
 |       +-- approval.go          # Permission flow, tool name formatting

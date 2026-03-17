@@ -66,6 +66,22 @@ func NewExecutor(cfg config.Config, logger *slog.Logger) *Executor {
 	}
 }
 
+// NewProjectExecutor creates an Executor for a specific project directory.
+func NewProjectExecutor(cliPath, workDir string, addDirs []string, timeout time.Duration, systemPrompt, model string, logger *slog.Logger) *Executor {
+	if workDir == "" {
+		workDir = "."
+	}
+	return &Executor{
+		cliPath:      cliPath,
+		workDir:      workDir,
+		timeout:      timeout,
+		systemPrompt: systemPrompt,
+		model:        model,
+		addDirs:      addDirs,
+		logger:       logger,
+	}
+}
+
 func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissions bool) (*store.CLIResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
