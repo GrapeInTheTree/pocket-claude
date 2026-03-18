@@ -20,7 +20,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   - `/bg inject <id>` — merge completed task results into main session as `/btw` context note (truncated to 4000 runes). Enables "independent analysis → selective context merge" workflow unique to Pocket Claude
 - **GitHub Actions CI** (`.github/workflows/ci.yml`): automated build, vet, gofmt check, test with race detector on push/PR to main
 - **Makefile**: `make build`, `make test`, `make test-race`, `make vet`, `make fmt`, `make fmt-check`, `make ci` (full local pipeline), `make run`, `make clean`
-- **Test Suite**: 58 test cases across 6 packages, all passing with `-race`
+- **Test Suite**: 62 test cases across 6 packages, all passing with `-race`
   - `store`: CRUD, stats, clear, outbox, message age
   - `claude`: stream JSON parsing, permission denials, UTF-8 truncation
   - `project`: add/remove/switch/rename, background executor, usage tracking, persistence across reloads
@@ -38,6 +38,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `/project` now shows available subcommands (info, add, search, rename, remove) alongside the project keyboard
 
 ### Fixed
+- **Long message auto-split**: Messages exceeding Telegram's 4096-char limit now automatically split into multiple messages. Prefers newline boundaries for natural breaks. Fixes "Bad Request: message is too long" outbox retry loops
 - **UTF-8 Truncation**: `Truncate()`, `safeTruncate()`, and `truncate()` now operate on runes instead of bytes — Korean, emoji, and CJK text no longer produces invalid UTF-8 when truncated
 - Trailing comma in `strings.Join()` call in `buildToolSummary`
 

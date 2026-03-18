@@ -123,7 +123,7 @@ go build -o pocket-claude ./cmd/pocket-claude/
 ### Test
 
 ```bash
-make test              # run all tests (58 cases)
+make test              # run all tests (62 cases)
 make test-race         # with race detector
 make ci                # full CI pipeline locally (fmt + vet + build + test)
 ```

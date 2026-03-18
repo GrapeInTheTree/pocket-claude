@@ -64,7 +64,7 @@ internal/
 
 ```bash
 make build          # or: go build -o pocket-claude ./cmd/pocket-claude/
-make test           # or: go test ./...           (58 cases)
+make test           # or: go test ./...           (62 cases)
 make test-race      # or: go test -race ./...     (with race detector)
 make vet            # or: go vet ./...
 make fmt            # or: gofmt -w .
