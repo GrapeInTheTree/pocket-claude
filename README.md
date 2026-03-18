@@ -123,7 +123,7 @@ go build -o pocket-claude ./cmd/pocket-claude/
 ### Test
 
 ```bash
-make test              # run all tests (57 cases)
+make test              # run all tests (58 cases)
 make test-race         # with race detector
 make ci                # full CI pipeline locally (fmt + vet + build + test)
 ```
@@ -177,6 +177,7 @@ retry - Force retry error messages
 | `/bg <message>` | Run task in background (current project) |
 | `/bg <project> <message>` | Run background task in specific project |
 | `/bg status` | Show running background tasks |
+| `/bg inject <id>` | Inject completed result into current session |
 | `/bg cancel <id>` | Cancel a background task |
 | `/cancel` | Cancel the currently processing foreground message |
 | `/usage` | Show API-equivalent cost and message count (per project) |
@@ -318,7 +319,16 @@ When a background task finishes:
 Found 3 potential security issues...
 ```
 
-Background tasks have their own permission flow — if a background task needs approval, you'll see a separate inline keyboard tagged with the task ID, so it won't interfere with foreground approvals.
+**Inject results into your main conversation:**
+```
+/bg inject bg_1710756000123
+  💉 Injected bg_1710756000123 into current session.
+
+You: "Fix issue #3 from that analysis"     <-- Claude knows the context
+Bot: "Fixed the SQL injection in auth.go..."
+```
+
+This "independent analysis → selective context merge" workflow is unique to Pocket Claude. Background tasks have their own permission flow — if a background task needs approval, you'll see a separate inline keyboard tagged with the task ID, so it won't interfere with foreground approvals.
 
 ### Permission System
 

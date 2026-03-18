@@ -23,7 +23,7 @@ Telegram --> Go Bot --> inbox.json --> Worker --> ProjectManager --> claude -p -
 
 - **ProjectManager**: Owns per-project `Executor` instances. Routes all CLI calls to the active project. Persists config to `projects.json`. Switched via `/project` command.
 - **Worker**: Single goroutine, sequential foreground processing from a buffered channel. Prevents concurrent `claude -p` calls on the main session.
-- **BackgroundPool**: Up to 3 concurrent background tasks via `/bg`. Each task gets an ephemeral `Executor` (not stored in Manager). Independent approval flow routed by `bg_` prefix on callback IDs. Atomic counter for unique task IDs. Semaphore-based slot limiting. Shutdown-safe (`closed` flag rejects new submissions after `CancelAll`).
+- **BackgroundPool**: Up to 3 concurrent background tasks via `/bg`. Each task gets an ephemeral `Executor` (not stored in Manager). Independent approval flow routed by `bg_` prefix on callback IDs. Atomic counter for unique task IDs. Semaphore-based slot limiting. Shutdown-safe (`closed` flag rejects new submissions after `CancelAll`). `/bg inject` merges completed results into main session as `/btw` context notes.
 - **Session**: Explicit `--resume <session_id>` tracking per project. Never uses `--continue` (prevents conflicts with Claude Code terminal in same directory).
 - **Permissions**: Two-phase execution. Phase 1: default permissions, check `permission_denials` in JSON output. Phase 2 (if approved): re-run with `--dangerously-skip-permissions`. Markdown fallback on parse errors.
 - **Media**: Photos/documents downloaded from Telegram to `/tmp`, file path passed to Claude CLI for multimodal analysis.
@@ -64,7 +64,7 @@ internal/
 
 ```bash
 make build          # or: go build -o pocket-claude ./cmd/pocket-claude/
-make test           # or: go test ./...           (57 cases)
+make test           # or: go test ./...           (58 cases)
 make test-race      # or: go test -race ./...     (with race detector)
 make vet            # or: go vet ./...
 make fmt            # or: gofmt -w .
@@ -93,7 +93,7 @@ Messages older than `MESSAGE_TTL_MINUTES` → auto `expired`. Prevents stale ret
 Goroutine spawning for callbacks/messages bounded by semaphore (max 10). Falls back to synchronous execution when limit reached.
 
 ### Background tasks (/bg)
-Each background task gets its own ephemeral `Executor` (not stored in Manager's map). This avoids session tracking race conditions between foreground and background. Approval callbacks are routed by ID prefix: `bg_` → BackgroundPool, `msg_` → Worker. Atomic counter (`sync/atomic.Int64`) for task IDs prevents millisecond collisions. `closed` flag prevents new submissions after `CancelAll` during shutdown. Typing indicators run independently per task.
+Each background task gets its own ephemeral `Executor` (not stored in Manager's map). This avoids session tracking race conditions between foreground and background. Approval callbacks are routed by ID prefix: `bg_` → BackgroundPool, `msg_` → Worker. Atomic counter (`sync/atomic.Int64`) for task IDs prevents millisecond collisions. `closed` flag prevents new submissions after `CancelAll` during shutdown. Typing indicators run independently per task. `/bg inject <id>` takes a completed task's `ResultText` and queues it as a `/btw` message into the main session (truncated to 4000 runes). This enables "independent analysis → selective context merge" — a workflow unique to Pocket Claude.
 
 ### Multi-project support
 Each project gets its own `Executor` with independent session, workDir, and addDirs. `ProjectManager` replaces the single executor in the Worker. Projects persist to `projects.json`. Default project auto-created from `CLAUDE_WORK_DIR` on first run. `/project` command for add/remove/switch via inline keyboard. `/project search <keyword>` scans home directory (depth 3) for git repos matching keyword, shows results as inline buttons for one-tap add. Path validation on add (must be existing directory).

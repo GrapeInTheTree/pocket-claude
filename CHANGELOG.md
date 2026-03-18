@@ -17,9 +17,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   - Atomic task ID counter prevents millisecond collisions
   - Shutdown-safe: `closed` flag rejects submissions after `CancelAll`, `Wait` ensures goroutine cleanup
   - Completed tasks auto-cleaned after 30 minutes
+  - `/bg inject <id>` — merge completed task results into main session as `/btw` context note (truncated to 4000 runes). Enables "independent analysis → selective context merge" workflow unique to Pocket Claude
 - **GitHub Actions CI** (`.github/workflows/ci.yml`): automated build, vet, gofmt check, test with race detector on push/PR to main
 - **Makefile**: `make build`, `make test`, `make test-race`, `make vet`, `make fmt`, `make fmt-check`, `make ci` (full local pipeline), `make run`, `make clean`
-- **Test Suite**: 57 test cases across 6 packages, all passing with `-race`
+- **Test Suite**: 58 test cases across 6 packages, all passing with `-race`
   - `store`: CRUD, stats, clear, outbox, message age
   - `claude`: stream JSON parsing, permission denials, UTF-8 truncation
   - `project`: add/remove/switch/rename, background executor, usage tracking, persistence across reloads
