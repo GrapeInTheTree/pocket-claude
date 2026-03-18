@@ -123,10 +123,17 @@ go build -o pocket-claude ./cmd/pocket-claude/
 ### Test
 
 ```bash
-go test ./...              # run all tests (52 cases)
+make test              # run all tests (57 cases)
+make test-race         # with race detector
+make ci                # full CI pipeline locally (fmt + vet + build + test)
+```
+
+Or directly:
+```bash
+go test ./...              # run tests
 go test -race ./...        # with race detector
-go test -v ./...           # verbose output
 go vet ./...               # static analysis
+gofmt -l .                 # check formatting
 ```
 
 > The PID file (`bot.pid`) ensures only one instance runs at a time. Restarting automatically kills the previous instance.
@@ -370,6 +377,10 @@ pocket-claude/
 |       +-- worker.go            # Message queue, TTL, error classification
 |       +-- approval.go          # Permission flow, tool name formatting
 |       +-- background.go        # Background task pool (3 concurrent slots)
++-- .github/
+|   +-- workflows/
+|       +-- ci.yml               # GitHub Actions: build, vet, fmt, test -race
++-- Makefile                     # make build/test/ci/fmt/run
 +-- .env.example
 +-- LICENSE                      # MIT
 +-- CLAUDE.md                    # Project context for Claude Code

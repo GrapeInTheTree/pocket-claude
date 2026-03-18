@@ -14,8 +14,8 @@ func TestParseStreamJSON(t *testing.T) {
 		wantCost   float64
 	}{
 		{
-			name: "single result event",
-			input: `{"type":"result","result":"Hello world","session_id":"sess_123","total_cost_usd":0.01,"duration_ms":500}`,
+			name:       "single result event",
+			input:      `{"type":"result","result":"Hello world","session_id":"sess_123","total_cost_usd":0.01,"duration_ms":500}`,
 			wantResult: "Hello world",
 			wantSID:    "sess_123",
 			wantCost:   0.01,
@@ -39,26 +39,26 @@ func TestParseStreamJSON(t *testing.T) {
 			wantTools:  map[string]int{"Grep": 2, "Edit": 1},
 		},
 		{
-			name:  "empty input",
-			input: "",
+			name:       "empty input",
+			input:      "",
 			wantResult: "",
 			wantSID:    "",
 		},
 		{
-			name:  "malformed JSON lines",
-			input: "not json\n{bad\n",
+			name:       "malformed JSON lines",
+			input:      "not json\n{bad\n",
 			wantResult: "",
 			wantSID:    "",
 		},
 		{
-			name: "result with permission denials",
-			input: `{"type":"result","result":"I need permission","session_id":"sess_perm","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"ls"}}]}`,
+			name:       "result with permission denials",
+			input:      `{"type":"result","result":"I need permission","session_id":"sess_perm","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"ls"}}]}`,
 			wantResult: "I need permission",
 			wantSID:    "sess_perm",
 		},
 		{
-			name: "fallback single JSON (no type field)",
-			input: `{"result":"fallback response","session_id":"sess_fb","total_cost_usd":0.001}`,
+			name:       "fallback single JSON (no type field)",
+			input:      `{"result":"fallback response","session_id":"sess_fb","total_cost_usd":0.001}`,
 			wantResult: "fallback response",
 			wantSID:    "sess_fb",
 			wantCost:   0.001,

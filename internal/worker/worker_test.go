@@ -21,8 +21,8 @@ func TestBuildToolSummary(t *testing.T) {
 		{
 			name: "single tool once",
 			result: &store.CLIResult{
-				ToolSummary: map[string]int{"Read": 1},
-				DurationMs:  5000,
+				ToolSummary:  map[string]int{"Read": 1},
+				DurationMs:   5000,
 				TotalCostUSD: 0.01,
 			},
 			want: "📖Read",
@@ -30,8 +30,8 @@ func TestBuildToolSummary(t *testing.T) {
 		{
 			name: "single tool multiple times",
 			result: &store.CLIResult{
-				ToolSummary: map[string]int{"Bash": 3},
-				DurationMs:  10000,
+				ToolSummary:  map[string]int{"Bash": 3},
+				DurationMs:   10000,
 				TotalCostUSD: 0.05,
 			},
 			want: "⚡Bash ×3",
@@ -55,8 +55,8 @@ func TestBuildToolSummary(t *testing.T) {
 		{
 			name: "multiple tools sorted",
 			result: &store.CLIResult{
-				ToolSummary: map[string]int{"Read": 3, "Bash": 2, "Edit": 1},
-				DurationMs:  30000,
+				ToolSummary:  map[string]int{"Read": 3, "Bash": 2, "Edit": 1},
+				DurationMs:   30000,
 				TotalCostUSD: 0.1,
 			},
 			want: "⚡Bash ×2  ✏️Edit  📖Read ×3",

@@ -17,11 +17,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   - Atomic task ID counter prevents millisecond collisions
   - Shutdown-safe: `closed` flag rejects submissions after `CancelAll`, `Wait` ensures goroutine cleanup
   - Completed tasks auto-cleaned after 30 minutes
-- **Test Suite**: 52 test cases across 4 packages, all passing with `-race`
+- **GitHub Actions CI** (`.github/workflows/ci.yml`): automated build, vet, gofmt check, test with race detector on push/PR to main
+- **Makefile**: `make build`, `make test`, `make test-race`, `make vet`, `make fmt`, `make fmt-check`, `make ci` (full local pipeline), `make run`, `make clean`
+- **Test Suite**: 57 test cases across 6 packages, all passing with `-race`
   - `store`: CRUD, stats, clear, outbox, message age
   - `claude`: stream JSON parsing, permission denials, UTF-8 truncation
   - `project`: add/remove/switch/rename, background executor, usage tracking, persistence across reloads
   - `worker`: tool summary, error classification, approval helpers, background pool (slots, cancel, cleanup, status, concurrency)
+  - `bot`: safeTruncate UTF-8 safety
+  - `config`: env helpers, PID file creation
 - Typing indicator: "typing..." shown in Telegram while Claude processes
 - `/usage` command: shows messages processed, session cost, total cost
 - Queue notifications: "Queued (#N)" when worker is busy with another request

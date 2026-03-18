@@ -43,8 +43,10 @@ internal/
   store/store.go                     # JSON file I/O, sync.Mutex, lock file
   store/store_test.go                # Store CRUD, stats, clear, outbox tests
   bot/bot.go                         # Telegram listener, callback handler (project/resume/approval/bg_), outbox poller
+  bot/bot_test.go                    # safeTruncate UTF-8 tests
   bot/commands.go                    # 13 commands: /help /new /name /btw /resume /model /cancel /usage /status /clear /retry /project /bg
   bot/media.go                       # Photo/document download with HTTP status validation
+  config/config_test.go              # Env helpers, PID file tests
   claude/executor.go                 # Claude CLI execution, --resume session tracking, --name, model switching
   claude/executor_test.go            # Stream JSON parsing, UTF-8 truncation tests
   project/types.go                   # ProjectConfig, ProjectsFile, ProjectUsage types
@@ -61,11 +63,14 @@ internal/
 ## Build & Run
 
 ```bash
-go build -o pocket-claude ./cmd/pocket-claude/    # build
-go vet ./...                                       # lint
-go test ./...                                      # test (52 cases)
-go test -race ./...                                # test with race detector
-./pocket-claude                                    # run
+make build          # or: go build -o pocket-claude ./cmd/pocket-claude/
+make test           # or: go test ./...           (57 cases)
+make test-race      # or: go test -race ./...     (with race detector)
+make vet            # or: go vet ./...
+make fmt            # or: gofmt -w .
+make fmt-check      # verify gofmt compliance
+make ci             # run full CI pipeline locally (fmt-check + vet + build + test-race)
+make run            # build & run
 ```
 
 ## Key Design Decisions

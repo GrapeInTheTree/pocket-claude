@@ -436,19 +436,19 @@ func (w *Worker) HasProject(name string) bool {
 // --- Delegated methods ---
 
 func (w *Worker) ResetSession()                     { w.projects.ResetSession() }
-func (w *Worker) SetModel(model string)              { w.projects.SetModel(model) }
-func (w *Worker) GetModel() string                   { return w.projects.GetModel() }
-func (w *Worker) GetSessions() []claude.SessionInfo  { return w.projects.GetSessions() }
-func (w *Worker) ResumeSession(id string)            { w.projects.SetResumeID(id) }
-func (w *Worker) SetSessionName(name string)         { w.projects.SetSessionName(name) }
-func (w *Worker) GetCurrentSessionID() string        { return w.projects.GetCurrentSessionID() }
+func (w *Worker) SetModel(model string)             { w.projects.SetModel(model) }
+func (w *Worker) GetModel() string                  { return w.projects.GetModel() }
+func (w *Worker) GetSessions() []claude.SessionInfo { return w.projects.GetSessions() }
+func (w *Worker) ResumeSession(id string)           { w.projects.SetResumeID(id) }
+func (w *Worker) SetSessionName(name string)        { w.projects.SetSessionName(name) }
+func (w *Worker) GetCurrentSessionID() string       { return w.projects.GetCurrentSessionID() }
 
 // --- Project delegation ---
 
-func (w *Worker) ActiveProject() string { return w.projects.ActiveProject() }
-func (w *Worker) SwitchProject(name string) error { return w.projects.SwitchProject(name) }
+func (w *Worker) ActiveProject() string                 { return w.projects.ActiveProject() }
+func (w *Worker) SwitchProject(name string) error       { return w.projects.SwitchProject(name) }
 func (w *Worker) AddProject(name, workDir string) error { return w.projects.AddProject(name, workDir) }
-func (w *Worker) RemoveProject(name string) error { return w.projects.RemoveProject(name) }
+func (w *Worker) RemoveProject(name string) error       { return w.projects.RemoveProject(name) }
 func (w *Worker) RenameProject(oldName, newName string) error {
 	return w.projects.RenameProject(oldName, newName)
 }
