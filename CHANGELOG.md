@@ -35,6 +35,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `ProjectManager.TrackUsageForProject()`: records cost for specific (possibly non-active) project
 - `ProjectManager.HasProject()`: existence check for `/bg` argument parsing
 - `/status` now shows background task count when active
+- `/project` now shows available subcommands (info, add, search, rename, remove) alongside the project keyboard
 
 ### Fixed
 - **UTF-8 Truncation**: `Truncate()`, `safeTruncate()`, and `truncate()` now operate on runes instead of bytes — Korean, emoji, and CJK text no longer produces invalid UTF-8 when truncated
