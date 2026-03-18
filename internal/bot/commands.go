@@ -446,7 +446,14 @@ func (b *Bot) cmdProject(args string) {
 	}
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
-	text := fmt.Sprintf("📂 *Projects* (%d)\n\nActive: *%s*\nTap to switch:", len(projects), active)
+	text := fmt.Sprintf("📂 *Projects* (%d) — Active: *%s*\n\n"+
+		"Tap to switch, or use:\n"+
+		"`/project info` — details & usage\n"+
+		"`/project add <name> <path>`\n"+
+		"`/project search <keyword>`\n"+
+		"`/project rename <old> <new>`\n"+
+		"`/project remove <name>`",
+		len(projects), active)
 	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
