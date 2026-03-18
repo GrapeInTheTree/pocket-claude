@@ -544,7 +544,7 @@ func (b *Bot) cmdBg(msg *tgbotapi.Message) {
 
 		inboxMsg := store.InboxMessage{
 			ID:        fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
-			Text:      "[BTW context note, just acknowledge briefly] " + btwText,
+			Text:      "[Injected context — do NOT respond to this, just silently remember it for future reference] " + btwText,
 			Status:    store.StatusPending,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Project:   b.worker.ActiveProject(),
