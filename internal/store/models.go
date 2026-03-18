@@ -66,6 +66,11 @@ type CLIResult struct {
 	TotalCostUSD      float64            `json:"total_cost_usd"`
 	DurationMs        int                `json:"duration_ms"`
 	NumTurns          int                `json:"num_turns"`
+	InputTokens       int                `json:"input_tokens"`
+	OutputTokens      int                `json:"output_tokens"`
+
+	// Populated by executor from stream-json, not from CLI JSON directly
+	ToolSummary map[string]int `json:"-"`
 }
 
 type PermissionDenial struct {
