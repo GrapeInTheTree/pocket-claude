@@ -6,10 +6,34 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Background Tasks** (`/bg`): Run up to 3 concurrent tasks in the background while continuing to chat
+  - `/bg <message>` — run in current project
+  - `/bg <project> <message>` — run in specific project without switching
+  - `/bg status` — show running tasks with elapsed time and slot usage
+  - `/bg cancel <id>` — cancel a specific task
+  - Each task gets an ephemeral Executor with independent session and approval flow
+  - Background approval callbacks routed by `bg_` ID prefix (no collision with foreground `msg_` prefix)
+  - Typing indicators per background task
+  - Atomic task ID counter prevents millisecond collisions
+  - Shutdown-safe: `closed` flag rejects submissions after `CancelAll`, `Wait` ensures goroutine cleanup
+  - Completed tasks auto-cleaned after 30 minutes
+- **Test Suite**: 52 test cases across 4 packages, all passing with `-race`
+  - `store`: CRUD, stats, clear, outbox, message age
+  - `claude`: stream JSON parsing, permission denials, UTF-8 truncation
+  - `project`: add/remove/switch/rename, background executor, usage tracking, persistence across reloads
+  - `worker`: tool summary, error classification, approval helpers, background pool (slots, cancel, cleanup, status, concurrency)
 - Typing indicator: "typing..." shown in Telegram while Claude processes
 - `/usage` command: shows messages processed, session cost, total cost
 - Queue notifications: "Queued (#N)" when worker is busy with another request
 - `CLIResult` extended with `TotalCostUSD`, `DurationMs`, `NumTurns` fields
+- `ProjectManager.NewBackgroundExecutor()`: creates independent executor not stored in manager's map
+- `ProjectManager.TrackUsageForProject()`: records cost for specific (possibly non-active) project
+- `ProjectManager.HasProject()`: existence check for `/bg` argument parsing
+- `/status` now shows background task count when active
+
+### Fixed
+- **UTF-8 Truncation**: `Truncate()`, `safeTruncate()`, and `truncate()` now operate on runes instead of bytes — Korean, emoji, and CJK text no longer produces invalid UTF-8 when truncated
+- Trailing comma in `strings.Join()` call in `buildToolSummary`
 
 ### Changed
 - Renamed project from `claude-cowork-telegram` to `pocket-claude`
@@ -17,6 +41,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Binary: `pocket-claude`
 - Default `MAX_RETRY_COUNT`: 3 → 2
 - Default `CLAUDE_TIMEOUT_SECONDS`: 120 → 600 (10 min)
+- `Worker.Stop()` now cancels and waits for background tasks before stopping
+- Approval callback routing in `bot.go` now checks `bg_` prefix for background task approvals
 
 ## [1.1.0] - 2026-03-16
 

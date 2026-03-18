@@ -179,10 +179,12 @@ func EscapeMD(s string) string {
 	return replacer.Replace(s)
 }
 
-// Truncate shortens a string with ellipsis.
+// Truncate shortens a string to maxLen runes, appending "..." if truncated.
+// Safe for multi-byte UTF-8 (Korean, emoji, CJK).
 func Truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string(runes[:maxLen]) + "..."
 }

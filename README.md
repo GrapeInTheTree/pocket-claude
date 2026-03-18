@@ -38,6 +38,7 @@ Think of it as SSH-ing into Claude Code, but through Telegram.
 - **Single Instance Guard** — PID file prevents duplicate instances; auto-kills previous on start
 - **Typing Indicator** — "typing..." shown in Telegram while Claude processes
 - **Multi-Project Support** — Switch between repos at runtime via `/project`, search for git repos with `/project search`, each with isolated sessions and cost tracking
+- **Background Tasks** — Run long tasks in parallel via `/bg` while continuing to chat. Up to 3 concurrent slots with independent sessions, permissions, and cost tracking
 - **Usage Tracking** — Per-project messages and API-equivalent cost via `/usage` and `/project info`
 - **Queue Notifications** — "Queued (#N)" when worker is busy with another request
 - **Structured Logging** — Logs to both stdout and file with timestamps and levels
@@ -57,6 +58,9 @@ Go Bot (local machine, single instance via PID file)
     |       |          '-- projects["api"]      → Executor (workDir: "/path/to/api")
     |       |-- Permission denied? --> Inline keyboard [Allow] [Deny]
     |       '-- Approved? --> Re-execute with --dangerously-skip-permissions
+    |-- Background Pool (up to 3 concurrent)
+    |       |-- /bg <task> --> ephemeral Executor --> independent session
+    |       '-- Separate approval flow (bg_ prefix routing)
     '-- Send result to Telegram + record in outbox.json (audit)
 ```
 
@@ -64,7 +68,7 @@ Go Bot (local machine, single instance via PID file)
 
 ### Prerequisites
 
-- [Go](https://go.dev/) 1.21+
+- [Go](https://go.dev/) 1.23+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
 - Your Telegram chat ID (use [@userinfobot](https://t.me/userinfobot) to find it)
@@ -116,6 +120,15 @@ go build -o pocket-claude ./cmd/pocket-claude/
 ./pocket-claude
 ```
 
+### Test
+
+```bash
+go test ./...              # run all tests (52 cases)
+go test -race ./...        # with race detector
+go test -v ./...           # verbose output
+go vet ./...               # static analysis
+```
+
 > The PID file (`bot.pid`) ensures only one instance runs at a time. Restarting automatically kills the previous instance.
 
 ### BotFather Commands (optional)
@@ -130,6 +143,7 @@ resume - Resume a previous session
 btw - Add context note
 model - Switch AI model
 project - Switch, search, or manage projects
+bg - Run background tasks
 cancel - Cancel current processing
 usage - Token cost tracking
 status - Message queue status
@@ -153,9 +167,13 @@ retry - Force retry error messages
 | `/project search <keyword>` | Search git repos and add via buttons |
 | `/project rename <old> <new>` | Rename a project |
 | `/project remove <name>` | Remove a project |
-| `/cancel` | Cancel the currently processing message |
+| `/bg <message>` | Run task in background (current project) |
+| `/bg <project> <message>` | Run background task in specific project |
+| `/bg status` | Show running background tasks |
+| `/bg cancel <id>` | Cancel a background task |
+| `/cancel` | Cancel the currently processing foreground message |
 | `/usage` | Show API-equivalent cost and message count (per project) |
-| `/status` | Show message queue status |
+| `/status` | Show message queue status (+ background task count) |
 | `/clear` | Remove completed/failed/expired messages |
 | `/retry` | Force retry error and failed messages |
 
@@ -251,6 +269,50 @@ You: "Run the tests"                      <-- Executes in my-app's directory
 
 Projects persist to `projects.json` and survive bot restarts.
 
+### Background Tasks
+
+Run long-running tasks in the background while continuing to chat. Each background task gets its own ephemeral Executor with an independent session, so there's no interference with your foreground conversation.
+
+```
+/bg analyze the entire codebase and find security issues
+  🔄 Background task started
+  🆔 bg_1710756000123
+  📂 Project: my-app
+  💬 analyze the entire codebase and find security issues
+
+  Use /bg status to check progress.
+```
+
+You can keep chatting normally while it runs:
+```
+You: "What's in the README?"               <-- processed immediately
+Bot: "The README contains..."
+
+/bg status
+  🔄 Background Tasks
+  🔄 bg_1710756000123 [running] analyze the entire codebas...
+     📂 my-app | ⏱ 1m23s
+  Slots: 1/3
+```
+
+Run tasks in other projects without switching:
+```
+/bg api-server run all integration tests   <-- runs in api-server project
+```
+
+When a background task finishes:
+```
+✅ Background Task Done
+📂 Project: my-app
+🆔 bg_1710756000123
+📋 📖Read ×12  🔎Grep ×8  ⚡Bash ×3 | 95s | $0.0847
+⏱ 1m35s
+
+Found 3 potential security issues...
+```
+
+Background tasks have their own permission flow — if a background task needs approval, you'll see a separate inline keyboard tagged with the task ID, so it won't interfere with foreground approvals.
+
 ### Permission System
 
 When Claude needs tools that require approval:
@@ -307,6 +369,7 @@ pocket-claude/
 |   +-- worker/
 |       +-- worker.go            # Message queue, TTL, error classification
 |       +-- approval.go          # Permission flow, tool name formatting
+|       +-- background.go        # Background task pool (3 concurrent slots)
 +-- .env.example
 +-- LICENSE                      # MIT
 +-- CLAUDE.md                    # Project context for Claude Code
@@ -362,6 +425,7 @@ launchctl load ~/Library/LaunchAgents/com.pocket-claude.plist
 - Requires the host machine to be running (macOS sleep will pause the bot)
 - Response time depends on Claude's processing (typically 5-30 seconds)
 - Session history is in-memory — session list resets on bot restart (sessions themselves persist in Claude)
+- Background tasks are in-memory — lost on bot restart (max 3 concurrent)
 - Each message consumes Claude Plan usage (Pro/Max recommended)
 - Single user only (`TELEGRAM_CHAT_ID` supports one ID)
 

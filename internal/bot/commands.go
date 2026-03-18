@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,6 +41,8 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.cmdRetry()
 	case "project":
 		b.cmdProject(msg.CommandArguments())
+	case "bg":
+		b.cmdBg(msg)
 	default:
 		b.sendMessage(fmt.Sprintf("Unknown command: /%s\nUse /help to see available commands.", msg.Command()))
 	}
@@ -61,6 +64,11 @@ func (b *Bot) cmdHelp() {
 		"/project search `<keyword>` — Find git repos to add\n" +
 		"/project rename `<old>` `<new>` — Rename project\n" +
 		"/project remove `<name>` — Remove project\n\n" +
+		"*Background:*\n" +
+		"/bg `<message>` — Run task in background\n" +
+		"/bg `<project>` `<message>` — In specific project\n" +
+		"/bg status — Check running tasks\n" +
+		"/bg cancel `<id>` — Cancel a task\n\n" +
 		"*Queue:*\n" +
 		"/status — Message queue status\n" +
 		"/usage — Token cost tracking\n" +
@@ -278,6 +286,13 @@ func (b *Bot) cmdStatus() {
 		sb.WriteString(fmt.Sprintf("\nLast message: %s", lastMsg.Format("2006-01-02 15:04:05 UTC")))
 	}
 
+	if b.worker != nil {
+		bgCount := b.worker.BackgroundRunningCount()
+		if bgCount > 0 {
+			sb.WriteString(fmt.Sprintf("\n\n🔄 Background tasks: %d/%d", bgCount, 3))
+		}
+	}
+
 	b.sendMessage(sb.String())
 }
 
@@ -473,6 +488,82 @@ func (b *Bot) cmdProjectSearch(keyword string) {
 		msg.ParseMode = ""
 		b.api.Send(msg)
 	}
+}
+
+func (b *Bot) cmdBg(msg *tgbotapi.Message) {
+	if b.worker == nil {
+		return
+	}
+
+	args := strings.TrimSpace(msg.CommandArguments())
+
+	// /bg → help
+	if args == "" {
+		b.sendMarkdown(
+			"🔄 *Background Tasks*\n\n" +
+				"`/bg <message>` — Run in current project\n" +
+				"`/bg <project> <message>` — Run in specific project\n" +
+				"`/bg status` — Show running tasks\n" +
+				"`/bg cancel <id>` — Cancel a task\n\n" +
+				"Background tasks run independently,\n" +
+				"so you can keep chatting.")
+		return
+	}
+
+	// /bg status
+	if args == "status" {
+		b.sendMessage(b.worker.BackgroundStatus())
+		return
+	}
+
+	// /bg cancel <id>
+	if strings.HasPrefix(args, "cancel ") {
+		taskID := strings.TrimSpace(strings.TrimPrefix(args, "cancel"))
+		if taskID == "" {
+			b.sendMessage("Usage: /bg cancel <task_id>")
+			return
+		}
+		if err := b.worker.CancelBackground(taskID); err != nil {
+			b.sendMessage("Failed: " + err.Error())
+		} else {
+			b.sendMessage(fmt.Sprintf("🛑 Cancelled background task: %s", taskID))
+		}
+		return
+	}
+
+	// /bg <project> <message> or /bg <message>
+	projectName, message := b.parseBgArgs(args)
+
+	taskID, err := b.worker.EnqueueBackground(context.Background(), projectName, message)
+	if err != nil {
+		b.sendMessage("❌ " + err.Error())
+		return
+	}
+
+	b.sendMessage(fmt.Sprintf(
+		"🔄 Background task started\n🆔 %s\n📂 Project: %s\n💬 %s\n\nUse /bg status to check progress.",
+		taskID, projectName, worker.Truncate(message, 60)))
+}
+
+// parseBgArgs splits args into project name and message.
+// If the first word matches a registered project (and it's different from
+// the active project), it's used as the target project. Otherwise the
+// entire string is the message for the active project.
+// This avoids misrouting when the active project name happens to be the first word.
+func (b *Bot) parseBgArgs(args string) (projectName, message string) {
+	active := b.worker.ActiveProject()
+	parts := strings.SplitN(args, " ", 2)
+	if len(parts) == 2 {
+		candidate := parts[0]
+		// Only treat as project routing if:
+		// 1. It's a known project name, AND
+		// 2. It's different from the active project (otherwise "test do X" would
+		//    be misrouted if active project is called "test")
+		if candidate != active && b.worker.HasProject(candidate) {
+			return candidate, parts[1]
+		}
+	}
+	return active, args
 }
 
 func (b *Bot) cmdRetry() {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,8 @@ type Worker struct {
 	currentCancel context.CancelFunc
 	currentMsgID  string
 	cancelled     bool
+
+	bgPool *BackgroundPool
 }
 
 func New(
@@ -47,7 +50,7 @@ func New(
 	sendTypingFn func(ctx context.Context),
 	logger *slog.Logger,
 ) *Worker {
-	return &Worker{
+	w := &Worker{
 		queue:           make(chan store.InboxMessage, queueSize),
 		projects:        projects,
 		store:           st,
@@ -59,6 +62,8 @@ func New(
 		messageTTL:      messageTTL,
 		maxRetryCount:   maxRetry,
 	}
+	w.bgPool = NewBackgroundPool(projects, sendFn, sendApprovalFn, sendTypingFn, logger)
+	return w
 }
 
 func (w *Worker) Start(ctx context.Context) {
@@ -165,7 +170,11 @@ func (w *Worker) process(ctx context.Context, msg store.InboxMessage) {
 	}
 
 	w.projects.TrackUsage(result)
-	w.sendAndRecord(msg.ID, result.Result)
+	response := result.Result
+	if summary := buildToolSummary(result); summary != "" {
+		response = summary + "\n\n" + response
+	}
+	w.sendAndRecord(msg.ID, response)
 }
 
 // GetUsage returns current usage stats from the active project.
@@ -369,7 +378,59 @@ func (w *Worker) processRetries() {
 }
 
 func (w *Worker) Stop() {
+	w.bgPool.CancelAll()
+	w.bgPool.Wait()
 	w.wg.Wait()
+}
+
+// --- Background task delegation ---
+
+// EnqueueBackground submits a background task for the given project.
+func (w *Worker) EnqueueBackground(ctx context.Context, projectName, message string) (string, error) {
+	return w.bgPool.Submit(ctx, projectName, message)
+}
+
+// BackgroundStatus returns formatted status of background tasks.
+func (w *Worker) BackgroundStatus() string {
+	return w.bgPool.Status()
+}
+
+// BackgroundRunningCount returns the number of active background tasks.
+func (w *Worker) BackgroundRunningCount() int {
+	return w.bgPool.RunningCount()
+}
+
+// CancelBackground cancels a specific background task.
+func (w *Worker) CancelBackground(taskID string) error {
+	return w.bgPool.Cancel(taskID)
+}
+
+// ResolveBackgroundApproval resolves a pending background task approval.
+func (w *Worker) ResolveBackgroundApproval(id string, approved bool) {
+	w.bgPool.ResolveApproval(id, approved)
+}
+
+// CleanupBackground periodically removes old completed background tasks.
+func (w *Worker) CleanupBackground(ctx context.Context, interval time.Duration) {
+	w.wg.Add(1)
+	defer w.wg.Done()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			w.bgPool.Cleanup(30 * time.Minute)
+		}
+	}
+}
+
+// HasProject checks if a project exists (for /bg argument parsing).
+func (w *Worker) HasProject(name string) bool {
+	return w.projects.HasProject(name)
 }
 
 // --- Delegated methods ---
@@ -399,6 +460,48 @@ func (w *Worker) GetProjectInfo() (project.ProjectConfig, *project.ProjectUsage,
 }
 
 // --- helpers ---
+
+var toolIcons = map[string]string{
+	"Bash": "⚡", "Read": "📖", "Edit": "✏️", "Write": "📄",
+	"Glob": "🔍", "Grep": "🔎", "WebFetch": "🌐", "WebSearch": "🔍",
+	"Agent": "🤖", "Skill": "🎯",
+}
+
+func buildToolSummary(result *store.CLIResult) string {
+	if len(result.ToolSummary) == 0 {
+		return ""
+	}
+
+	// Sort tool names for stable output
+	names := make([]string, 0, len(result.ToolSummary))
+	for name := range result.ToolSummary {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var parts []string
+	for _, name := range names {
+		count := result.ToolSummary[name]
+		icon := toolIcons[name]
+		if icon == "" {
+			if strings.HasPrefix(name, "mcp__") {
+				icon = "🔌"
+			} else {
+				icon = "🔧"
+			}
+		}
+		if count > 1 {
+			parts = append(parts, fmt.Sprintf("%s%s ×%d", icon, name, count))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s%s", icon, name))
+		}
+	}
+
+	dur := fmt.Sprintf("%.0fs", float64(result.DurationMs)/1000)
+	cost := fmt.Sprintf("$%.4f", result.TotalCostUSD)
+
+	return fmt.Sprintf("📋 %s | %s | %s", strings.Join(parts, "  "), dur, cost)
+}
 
 func (w *Worker) updateInboxStatus(id, status, result, lastError string) {
 	w.store.UpdateInbox(func(mf *store.InboxFile) bool {

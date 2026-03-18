@@ -63,6 +63,7 @@ func main() {
 	go w.Start(ctx)
 	go w.PollPending(ctx, 30*time.Second)
 	go w.ProcessRetries(ctx, 30*time.Second)
+	go w.CleanupBackground(ctx, 5*time.Minute)
 	go b.PollOutbox(ctx)
 	go b.Listen(ctx)
 

@@ -323,6 +323,47 @@ func (m *Manager) GetModel() string {
 	return exec.GetModel()
 }
 
+// NewBackgroundExecutor creates an independent Executor for the named project.
+// It is NOT stored in the Manager's map — the caller owns its lifecycle.
+func (m *Manager) NewBackgroundExecutor(projectName string) (*claude.Executor, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	pc, ok := m.projects[projectName]
+	if !ok {
+		return nil, fmt.Errorf("project %q not found", projectName)
+	}
+
+	return claude.NewProjectExecutor(
+		m.cliPath, pc.WorkDir, pc.AddDirs, m.timeout, m.systemPrompt, m.model, m.logger,
+	), nil
+}
+
+// TrackUsageForProject records cost for a specific (possibly non-active) project.
+// Silently ignores unknown projects (e.g. deleted while bg task was running).
+func (m *Manager) TrackUsageForProject(projectName string, result *store.CLIResult) {
+	if result == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.usage[projectName]
+	if !ok {
+		return // project was deleted, ignore
+	}
+	u.TotalCostUSD += result.TotalCostUSD
+	u.SessionCostUSD += result.TotalCostUSD
+	u.TotalMessages++
+}
+
+// HasProject returns whether a project with the given name exists.
+func (m *Manager) HasProject(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.projects[name]
+	return ok
+}
+
 // --- Usage tracking ---
 
 // TrackUsage records cost from a CLI result for the active project.

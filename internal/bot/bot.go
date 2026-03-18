@@ -344,7 +344,12 @@ func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
 	}
 
 	if b.worker != nil {
-		b.worker.ResolveApproval(approvalID, approved)
+		// Route to background pool or main worker based on ID prefix
+		if strings.HasPrefix(approvalID, "bg_") {
+			b.worker.ResolveBackgroundApproval(approvalID, approved)
+		} else {
+			b.worker.ResolveApproval(approvalID, approved)
+		}
 	}
 }
 
@@ -397,10 +402,12 @@ func (b *Bot) Shutdown() {
 	b.wg.Wait()
 }
 
-// safeTruncate safely truncates a string without panicking on short inputs.
+// safeTruncate safely truncates a string to maxLen runes without panicking.
+// Safe for multi-byte UTF-8.
 func safeTruncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen]
+	return string(runes[:maxLen])
 }

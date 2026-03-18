@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -86,7 +87,7 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
-	args := []string{"-p", userMessage, "--output-format", "json"}
+	args := []string{"-p", userMessage, "--output-format", "stream-json", "--verbose"}
 
 	e.mu.Lock()
 	sessionID := e.currentSessionID
@@ -145,20 +146,14 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 
 	elapsed := time.Since(start)
 
-	var result store.CLIResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		e.logger.Warn("Claude CLI output not JSON, treating as plain text",
-			"error", err, "output_len", stdout.Len())
-		result = store.CLIResult{
-			Result: strings.TrimSpace(stdout.String()),
-		}
-	}
+	result := parseStreamJSON(stdout.Bytes())
 
 	e.logger.Info("Claude CLI completed",
 		"elapsed", elapsed.String(),
 		"result_len", len(result.Result),
 		"permission_denials", len(result.PermissionDenials),
-		"session_id", result.SessionID)
+		"session_id", result.SessionID,
+		"tools_used", len(result.ToolSummary))
 
 	if result.Result == "" && !result.IsError {
 		return nil, fmt.Errorf("empty response from Claude CLI")
@@ -172,7 +167,7 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 		e.mu.Unlock()
 	}
 
-	return &result, nil
+	return result, nil
 }
 
 func (e *Executor) trackSession(id, firstMsg string) {
@@ -247,9 +242,68 @@ func (e *Executor) GetModel() string {
 	return e.model
 }
 
+// parseStreamJSON parses stream-json output from Claude CLI.
+// Extracts the final result and counts tool usage from assistant message events.
+func parseStreamJSON(data []byte) *store.CLIResult {
+	var result store.CLIResult
+	toolCounts := make(map[string]int)
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// Increase buffer for large responses
+	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var event map[string]any
+		if err := json.Unmarshal(line, &event); err != nil {
+			continue
+		}
+
+		eventType, _ := event["type"].(string)
+
+		switch eventType {
+		case "assistant":
+			// Extract tool_use from message.content
+			msg, _ := event["message"].(map[string]any)
+			if msg == nil {
+				continue
+			}
+			content, _ := msg["content"].([]any)
+			for _, c := range content {
+				block, _ := c.(map[string]any)
+				if block == nil {
+					continue
+				}
+				if block["type"] == "tool_use" {
+					if name, ok := block["name"].(string); ok {
+						toolCounts[name]++
+					}
+				}
+			}
+
+		case "result":
+			// Final result event — parse into CLIResult
+			json.Unmarshal(line, &result)
+		}
+	}
+
+	// Fallback: if no result event found, try parsing entire output as single JSON
+	if result.Result == "" && result.SessionID == "" {
+		json.Unmarshal(data, &result)
+	}
+
+	result.ToolSummary = toolCounts
+	return &result
+}
+
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string(runes[:maxLen]) + "..."
 }
