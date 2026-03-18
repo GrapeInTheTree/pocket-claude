@@ -39,6 +39,8 @@ Think of it as SSH-ing into Claude Code, but through Telegram.
 - **Typing Indicator** — "typing..." shown in Telegram while Claude processes
 - **Multi-Project Support** — Switch between repos at runtime via `/project`, search for git repos with `/project search`, each with isolated sessions and cost tracking
 - **Background Tasks** — Run long tasks in parallel via `/bg` while continuing to chat. Up to 3 concurrent slots with independent sessions, permissions, and cost tracking
+- **Ralph Loop** — Iterative autonomous execution via `/ralph`. Claude repeats a task across iterations, seeing its previous work each time. Auto-completes or stops on safety limits
+- **Plan Mode** — Two-phase execution via `/plan`. Claude analyzes with read-only tools first, you review the plan, then execute on approval
 - **Usage Tracking** — Per-project messages and API-equivalent cost via `/usage` and `/project info`
 - **Queue Notifications** — "Queued (#N)" when worker is busy with another request
 - **Structured Logging** — Logs to both stdout and file with timestamps and levels
@@ -123,7 +125,7 @@ go build -o pocket-claude ./cmd/pocket-claude/
 ### Test
 
 ```bash
-make test              # run all tests (62 cases)
+make test              # run all tests (68 cases)
 make test-race         # with race detector
 make ci                # full CI pipeline locally (fmt + vet + build + test)
 ```
@@ -151,6 +153,8 @@ btw - Add context note
 model - Switch AI model
 project - Switch, search, or manage projects
 bg - Run background tasks
+ralph - Iterative auto-loop
+plan - Plan then execute
 cancel - Cancel current processing
 usage - Token cost tracking
 status - Message queue status
@@ -179,6 +183,13 @@ retry - Force retry error messages
 | `/bg status` | Show running background tasks |
 | `/bg inject <id>` | Inject completed result into current session |
 | `/bg cancel <id>` | Cancel a background task |
+| `/ralph <message>` | Iterative auto-loop until task is done |
+| `/ralph <msg> --max <N>` | Set max iterations (default 5) |
+| `/ralph status` | Show running loops with iteration progress |
+| `/ralph cancel <id>` | Cancel a loop |
+| `/plan <message>` | Create a plan (read-only analysis) |
+| `/plan execute` | Execute the active plan |
+| `/plan show` / `/plan cancel` | Review or discard plan |
 | `/cancel` | Cancel the currently processing foreground message |
 | `/usage` | Show API-equivalent cost and message count (per project) |
 | `/status` | Show message queue status (+ background task count) |
@@ -330,6 +341,52 @@ Bot: "Fixed the SQL injection in auth.go..."
 
 This "independent analysis → selective context merge" workflow is unique to Pocket Claude. Background tasks have their own permission flow — if a background task needs approval, you'll see a separate inline keyboard tagged with the task ID, so it won't interfere with foreground approvals.
 
+### Ralph — Iterative Autonomous Loop
+
+Named after the [Ralph Wiggum plugin](https://github.com/anthropics/claude-code/tree/main/plugins/ralph-wiggum) for Claude Code. Claude repeats a task across multiple iterations, seeing its previous work each time. Solves the 10-minute timeout problem for large tasks.
+
+```
+/ralph refactor all handlers to use dependency injection --max 5
+  🔁 Ralph loop started
+  🆔 bg_123 | 📂 my-app | 🔄 Max: 5
+
+  🔁 Ralph [bg_123] Iteration 1/5
+  📂 my-app | 💰 $0.0234
+  Refactored UserHandler and AuthHandler...
+
+  🔁 Ralph [bg_123] Iteration 2/5
+  📂 my-app | 💰 $0.0512
+  Refactored remaining handlers, updated tests...
+
+  ✅ Ralph Done (2/5 iterations)
+  📂 my-app | 💰 $0.0512 | ⏱ 4m32s
+  🏁 completed
+```
+
+Safety limits: max 20 iterations, $1.00 cost limit, stall detection (3 iterations without progress).
+
+### Plan Mode
+
+Two-phase execution: Claude first analyzes with read-only tools, then executes on your approval.
+
+```
+/plan add authentication to the API
+  📋 Planning... (read-only analysis)
+
+  📋 Plan Ready
+  📂 my-app
+
+  1. Create middleware/auth.go with JWT verification
+  2. Add token validation in router.go
+  3. Write tests in auth_test.go
+
+  /plan execute — Run this plan
+  /plan cancel — Discard
+
+/plan execute
+  🚀 Executing plan... (resumes planning session with full tools)
+```
+
 ### Permission System
 
 When Claude needs tools that require approval:
@@ -387,6 +444,8 @@ pocket-claude/
 |       +-- worker.go            # Message queue, TTL, error classification
 |       +-- approval.go          # Permission flow, tool name formatting
 |       +-- background.go        # Background task pool (3 concurrent slots)
+|       +-- ralph.go             # Ralph iterative loop
+|       +-- plan.go              # Plan mode (read-only → execute)
 +-- .github/
 |   +-- workflows/
 |       +-- ci.yml               # GitHub Actions: build, vet, fmt, test -race

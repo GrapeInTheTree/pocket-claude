@@ -43,6 +43,10 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.cmdProject(msg.CommandArguments())
 	case "bg":
 		b.cmdBg(msg)
+	case "ralph":
+		b.cmdRalph(msg)
+	case "plan":
+		b.cmdPlan(msg)
 	default:
 		b.sendMessage(fmt.Sprintf("Unknown command: /%s\nUse /help to see available commands.", msg.Command()))
 	}
@@ -66,10 +70,16 @@ func (b *Bot) cmdHelp() {
 		"/project remove `<name>` — Remove project\n\n" +
 		"*Background:*\n" +
 		"/bg `<message>` — Run task in background\n" +
-		"/bg `<project>` `<message>` — In specific project\n" +
-		"/bg status — Check running tasks\n" +
 		"/bg inject `<id>` — Inject result into session\n" +
-		"/bg cancel `<id>` — Cancel a task\n\n" +
+		"/bg status / cancel `<id>`\n\n" +
+		"*Ralph (Iterative Loop):*\n" +
+		"/ralph `<message>` — Auto-loop until done\n" +
+		"/ralph `<msg>` --max `<N>` — Set max iterations\n" +
+		"/ralph status / cancel `<id>`\n\n" +
+		"*Plan Mode:*\n" +
+		"/plan `<message>` — Create plan (read-only)\n" +
+		"/plan execute — Run the plan\n" +
+		"/plan show / cancel\n\n" +
 		"*Queue:*\n" +
 		"/status — Message queue status\n" +
 		"/usage — Token cost tracking\n" +
@@ -633,4 +643,123 @@ func (b *Bot) cmdRetry() {
 	} else {
 		b.sendMessage(fmt.Sprintf("Force-retrying %d messages (retry count reset).", retried))
 	}
+}
+
+// --- /ralph command ---
+
+func (b *Bot) cmdRalph(msg *tgbotapi.Message) {
+	if b.worker == nil {
+		return
+	}
+
+	args := strings.TrimSpace(msg.CommandArguments())
+
+	if args == "" {
+		b.sendMarkdown(
+			"🔁 *Ralph — Iterative Loop*\n\n" +
+				"`/ralph <message>` — Auto-loop until done\n" +
+				"`/ralph <message> --max <N>` — Set max iterations (default 5)\n" +
+				"`/ralph status` — Show running loops\n" +
+				"`/ralph cancel <id>` — Cancel a loop\n\n" +
+				"Claude repeats the task across iterations,\n" +
+				"seeing its previous work each time.")
+		return
+	}
+
+	if args == "status" {
+		b.sendMessage(b.worker.RalphStatus())
+		return
+	}
+
+	if strings.HasPrefix(args, "cancel ") {
+		taskID := strings.TrimSpace(strings.TrimPrefix(args, "cancel"))
+		if taskID == "" {
+			b.sendMessage("Usage: /ralph cancel <task_id>")
+			return
+		}
+		if err := b.worker.CancelBackground(taskID); err != nil {
+			b.sendMessage("Failed: " + err.Error())
+		} else {
+			b.sendMessage(fmt.Sprintf("🛑 Cancelled ralph loop: %s", taskID))
+		}
+		return
+	}
+
+	message, maxIter := worker.ParseRalphArgs(args)
+	if message == "" {
+		b.sendMessage("Usage: /ralph <message> [--max <N>]")
+		return
+	}
+	projectName := b.worker.ActiveProject()
+
+	taskID, err := b.worker.EnqueueRalph(context.Background(), projectName, message, maxIter)
+	if err != nil {
+		b.sendMessage("❌ " + err.Error())
+		return
+	}
+
+	b.sendMessage(fmt.Sprintf(
+		"🔁 Ralph loop started\n🆔 %s\n📂 Project: %s\n🔄 Max iterations: %d\n💬 %s",
+		taskID, projectName, maxIter, worker.Truncate(message, 60)))
+}
+
+// --- /plan command ---
+
+func (b *Bot) cmdPlan(msg *tgbotapi.Message) {
+	if b.worker == nil {
+		return
+	}
+
+	args := strings.TrimSpace(msg.CommandArguments())
+
+	if args == "" {
+		b.sendMarkdown(
+			"📋 *Plan Mode*\n\n" +
+				"`/plan <message>` — Create a plan (read-only)\n" +
+				"`/plan execute` — Execute the active plan\n" +
+				"`/plan show` — Show current plan\n" +
+				"`/plan cancel` — Discard active plan\n\n" +
+				"Claude analyzes first, then executes on your approval.")
+		return
+	}
+
+	projectName := b.worker.ActiveProject()
+
+	if args == "execute" {
+		taskID, err := b.worker.ExecutePlan(context.Background(), projectName)
+		if err != nil {
+			b.sendMessage("Failed: " + err.Error())
+			return
+		}
+		b.sendMessage(fmt.Sprintf("🚀 Executing plan...\n🆔 %s\n📂 %s", taskID, projectName))
+		return
+	}
+
+	if args == "cancel" {
+		if b.worker.CancelPlan(projectName) {
+			b.sendMessage("🗑 Plan discarded.")
+		} else {
+			b.sendMessage("No active plan to cancel.")
+		}
+		return
+	}
+
+	if args == "show" {
+		plan := b.worker.GetPlan(projectName)
+		if plan == nil {
+			b.sendMessage("No active plan. Use /plan <message> to create one.")
+			return
+		}
+		b.sendMessage(fmt.Sprintf("📋 Active Plan\n📂 %s\n\n%s\n\n/plan execute — Run this plan\n/plan cancel — Discard", projectName, plan.PlanText))
+		return
+	}
+
+	// /plan <message> — create plan
+	taskID, err := b.worker.CreatePlan(context.Background(), projectName, args)
+	if err != nil {
+		b.sendMessage("❌ " + err.Error())
+		return
+	}
+	b.sendMessage(fmt.Sprintf("📋 Planning...\n🆔 %s\n📂 %s\n💬 %s",
+		taskID, projectName, worker.Truncate(args, 60)))
 }

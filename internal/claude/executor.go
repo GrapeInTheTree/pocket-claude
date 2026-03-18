@@ -83,7 +83,18 @@ func NewProjectExecutor(cliPath, workDir string, addDirs []string, timeout time.
 	}
 }
 
+// ExecuteOptions provides optional parameters for CLI execution.
+type ExecuteOptions struct {
+	SkipPermissions bool
+	AllowedTools    []string // if non-empty, restricts tool access via --allowedTools
+}
+
 func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissions bool) (*store.CLIResult, error) {
+	return e.ExecuteWithOptions(ctx, userMessage, ExecuteOptions{SkipPermissions: skipPermissions})
+}
+
+// ExecuteWithOptions runs the Claude CLI with configurable options.
+func (e *Executor) ExecuteWithOptions(ctx context.Context, userMessage string, opts ExecuteOptions) (*store.CLIResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
@@ -103,8 +114,11 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 		args = append(args, "--name", name)
 	}
 
-	if skipPermissions {
+	if opts.SkipPermissions {
 		args = append(args, "--dangerously-skip-permissions")
+	}
+	if len(opts.AllowedTools) > 0 {
+		args = append(args, "--allowedTools", strings.Join(opts.AllowedTools, ","))
 	}
 	if e.systemPrompt != "" {
 		args = append(args, "--system-prompt", e.systemPrompt)
@@ -126,7 +140,7 @@ func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissi
 	e.logger.Info("Claude CLI executing",
 		"prompt", truncate(userMessage, 80),
 		"session", sessionID,
-		"skip_permissions", skipPermissions,
+		"skip_permissions", opts.SkipPermissions,
 		"model", model)
 
 	start := time.Now()

@@ -34,6 +34,15 @@ type BackgroundTask struct {
 	Cancel     context.CancelFunc
 	Error      string
 	ResultText string // raw Claude response, stored for /bg inject
+
+	// Ralph-specific fields
+	IsRalph          bool
+	MaxIterations    int
+	CurrentIteration int
+	TotalCostUSD     float64
+	MaxCostUSD       float64
+	LastResultLen    int
+	StallCount       int
 }
 
 // BackgroundPool manages concurrent background tasks with independent executors.
@@ -44,6 +53,7 @@ type BackgroundPool struct {
 	closed bool // set by CancelAll to reject new submissions
 
 	approvals sync.Map // taskID -> chan bool
+	plans     sync.Map // projectName -> *PlanState
 
 	sem            chan struct{}
 	projects       *project.Manager
