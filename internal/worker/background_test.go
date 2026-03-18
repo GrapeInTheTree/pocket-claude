@@ -266,6 +266,55 @@ func TestTaskCounterUniqueness(t *testing.T) {
 	}
 }
 
+func TestBackgroundPoolGetResult(t *testing.T) {
+	pool := NewBackgroundPool(nil, nil, nil, nil, testLogger())
+
+	pool.mu.Lock()
+	pool.tasks["bg_done"] = &BackgroundTask{
+		ID: "bg_done", State: "done", Project: "my-app",
+		ResultText: "Found 3 security issues", StartedAt: time.Now(),
+	}
+	pool.tasks["bg_running"] = &BackgroundTask{
+		ID: "bg_running", State: "running", Project: "api",
+		StartedAt: time.Now(),
+	}
+	pool.tasks["bg_empty"] = &BackgroundTask{
+		ID: "bg_empty", State: "done", Project: "api",
+		ResultText: "", StartedAt: time.Now(),
+	}
+	pool.mu.Unlock()
+
+	// Success case
+	text, proj, err := pool.GetResult("bg_done")
+	if err != nil {
+		t.Fatalf("GetResult bg_done: %v", err)
+	}
+	if text != "Found 3 security issues" {
+		t.Errorf("text = %q, want 'Found 3 security issues'", text)
+	}
+	if proj != "my-app" {
+		t.Errorf("project = %q, want 'my-app'", proj)
+	}
+
+	// Still running
+	_, _, err = pool.GetResult("bg_running")
+	if err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Errorf("Expected 'still running' error, got %v", err)
+	}
+
+	// Empty result
+	_, _, err = pool.GetResult("bg_empty")
+	if err == nil || !strings.Contains(err.Error(), "no result") {
+		t.Errorf("Expected 'no result' error, got %v", err)
+	}
+
+	// Not found
+	_, _, err = pool.GetResult("bg_nonexistent")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("Expected 'not found' error, got %v", err)
+	}
+}
+
 func TestTaskCounterConcurrency(t *testing.T) {
 	seen := sync.Map{}
 	var wg sync.WaitGroup

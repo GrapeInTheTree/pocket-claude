@@ -405,6 +405,11 @@ func (w *Worker) CancelBackground(taskID string) error {
 	return w.bgPool.Cancel(taskID)
 }
 
+// GetBackgroundResult returns the result text and project for a completed bg task.
+func (w *Worker) GetBackgroundResult(taskID string) (string, string, error) {
+	return w.bgPool.GetResult(taskID)
+}
+
 // ResolveBackgroundApproval resolves a pending background task approval.
 func (w *Worker) ResolveBackgroundApproval(id string, approved bool) {
 	w.bgPool.ResolveApproval(id, approved)

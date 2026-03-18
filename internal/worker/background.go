@@ -26,13 +26,14 @@ func init() {
 
 // BackgroundTask represents a single background task.
 type BackgroundTask struct {
-	ID        string
-	Project   string
-	Message   string
-	State     string // "running", "approval", "done", "failed", "cancelled"
-	StartedAt time.Time
-	Cancel    context.CancelFunc
-	Error     string
+	ID         string
+	Project    string
+	Message    string
+	State      string // "running", "approval", "done", "failed", "cancelled"
+	StartedAt  time.Time
+	Cancel     context.CancelFunc
+	Error      string
+	ResultText string // raw Claude response, stored for /bg inject
 }
 
 // BackgroundPool manages concurrent background tasks with independent executors.
@@ -232,6 +233,11 @@ func (bp *BackgroundPool) ResolveApproval(id string, approved bool) {
 }
 
 func (bp *BackgroundPool) sendResult(task *BackgroundTask, result *store.CLIResult) {
+	// Store raw result for /bg inject
+	bp.mu.Lock()
+	task.ResultText = result.Result
+	bp.mu.Unlock()
+
 	elapsed := time.Since(task.StartedAt)
 	var elapsedStr string
 	if elapsed < time.Minute {
@@ -261,6 +267,24 @@ func (bp *BackgroundPool) sendResult(task *BackgroundTask, result *store.CLIResu
 		bp.logger.Error("Failed to send background result", "id", task.ID, "error", err)
 	}
 	bp.logger.Info("Background task completed", "id", task.ID, "elapsed", elapsedStr)
+}
+
+// GetResult returns the result text and project for a completed background task.
+func (bp *BackgroundPool) GetResult(taskID string) (resultText, projectName string, err error) {
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
+
+	t, ok := bp.tasks[taskID]
+	if !ok {
+		return "", "", fmt.Errorf("task %q not found", taskID)
+	}
+	if t.State == "running" || t.State == "approval" {
+		return "", "", fmt.Errorf("task %q is still running", taskID)
+	}
+	if t.ResultText == "" {
+		return "", "", fmt.Errorf("task %q has no result", taskID)
+	}
+	return t.ResultText, t.Project, nil
 }
 
 func (bp *BackgroundPool) setTaskState(id, state, errMsg string) {

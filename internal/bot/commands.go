@@ -68,6 +68,7 @@ func (b *Bot) cmdHelp() {
 		"/bg `<message>` — Run task in background\n" +
 		"/bg `<project>` `<message>` — In specific project\n" +
 		"/bg status — Check running tasks\n" +
+		"/bg inject `<id>` — Inject result into session\n" +
 		"/bg cancel `<id>` — Cancel a task\n\n" +
 		"*Queue:*\n" +
 		"/status — Message queue status\n" +
@@ -504,15 +505,49 @@ func (b *Bot) cmdBg(msg *tgbotapi.Message) {
 				"`/bg <message>` — Run in current project\n" +
 				"`/bg <project> <message>` — Run in specific project\n" +
 				"`/bg status` — Show running tasks\n" +
+				"`/bg inject <id>` — Inject result into session\n" +
 				"`/bg cancel <id>` — Cancel a task\n\n" +
-				"Background tasks run independently,\n" +
-				"so you can keep chatting.")
+				"Background tasks run independently.\n" +
+				"Use inject to bring results into your conversation.")
 		return
 	}
 
 	// /bg status
 	if args == "status" {
 		b.sendMessage(b.worker.BackgroundStatus())
+		return
+	}
+
+	// /bg inject <id>
+	if strings.HasPrefix(args, "inject ") {
+		taskID := strings.TrimSpace(strings.TrimPrefix(args, "inject"))
+		if taskID == "" {
+			b.sendMessage("Usage: /bg inject <task_id>")
+			return
+		}
+		resultText, projectName, err := b.worker.GetBackgroundResult(taskID)
+		if err != nil {
+			b.sendMessage("Failed: " + err.Error())
+			return
+		}
+
+		// Truncate to avoid excessive context injection
+		injected := worker.Truncate(resultText, 4000)
+		btwText := fmt.Sprintf("[Background task %s result from project %q] %s", taskID, projectName, injected)
+
+		inboxMsg := store.InboxMessage{
+			ID:        fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
+			Text:      "[BTW context note, just acknowledge briefly] " + btwText,
+			Status:    store.StatusPending,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Project:   b.worker.ActiveProject(),
+		}
+		if err := b.store.AppendToInbox(inboxMsg); err != nil {
+			b.sendMessage("Failed to inject: " + err.Error())
+			return
+		}
+		b.worker.Enqueue(inboxMsg)
+		b.sendMessage(fmt.Sprintf("💉 Injected %s into current session.\nClaude will now have context from that background task.", taskID))
 		return
 	}
 
