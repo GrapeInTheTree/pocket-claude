@@ -106,7 +106,7 @@ cp .env.example .env
 | `MESSAGE_TTL_MINUTES` | `10` | Auto-expire messages older than this |
 | `CLAUDE_CLI_PATH` | `claude` | Claude CLI binary path |
 | `CLAUDE_WORK_DIR` | `.` | Working directory for CLI |
-| `CLAUDE_TIMEOUT_SECONDS` | `600` | CLI execution timeout (10 min) |
+| `CLAUDE_TIMEOUT_SECONDS` | `1200` | CLI execution timeout (20 min) |
 | `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
 | `CLAUDE_MODEL` | *(none)* | Model override (e.g., `sonnet`, `opus`) |
 | `CLAUDE_ADD_DIRS` | `~` | Extra directories Claude can access |

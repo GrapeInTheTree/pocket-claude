@@ -51,7 +51,7 @@ func Load() Config {
 
 		CLIPath:         envOrDefault("CLAUDE_CLI_PATH", "claude"),
 		CLIWorkDir:      envOrDefault("CLAUDE_WORK_DIR", "."),
-		CLITimeoutSec:   envIntOrDefault("CLAUDE_TIMEOUT_SECONDS", 120),
+		CLITimeoutSec:   envIntOrDefault("CLAUDE_TIMEOUT_SECONDS", 1200),
 		CLISystemPrompt: os.Getenv("CLAUDE_SYSTEM_PROMPT"),
 		CLIModel:        os.Getenv("CLAUDE_MODEL"),
 		CLIAddDirs:      envOrDefault("CLAUDE_ADD_DIRS", "~"),

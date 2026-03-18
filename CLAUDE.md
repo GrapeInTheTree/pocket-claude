@@ -124,7 +124,7 @@ Each project gets its own `Executor` with independent session, workDir, and addD
 | `MESSAGE_TTL_MINUTES` | `10` | Message expiry time |
 | `CLAUDE_CLI_PATH` | `claude` | CLI binary path |
 | `CLAUDE_WORK_DIR` | `.` | CLI working directory |
-| `CLAUDE_TIMEOUT_SECONDS` | `600` | CLI execution timeout (10 min) |
+| `CLAUDE_TIMEOUT_SECONDS` | `1200` | CLI execution timeout (20 min) |
 | `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
 | `CLAUDE_MODEL` | *(none)* | Model override |
 | `CLAUDE_ADD_DIRS` | `~` | Extra directories for CLI access |
