@@ -53,7 +53,6 @@ type BackgroundPool struct {
 	closed bool // set by CancelAll to reject new submissions
 
 	approvals sync.Map // taskID -> chan bool
-	plans     sync.Map // projectName -> *PlanState
 
 	sem            chan struct{}
 	projects       *project.Manager

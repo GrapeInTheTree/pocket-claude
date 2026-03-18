@@ -422,28 +422,6 @@ func (w *Worker) RalphStatus() string {
 	return w.bgPool.RalphStatus()
 }
 
-// --- Plan delegation ---
-
-// CreatePlan creates a plan using read-only tools.
-func (w *Worker) CreatePlan(ctx context.Context, projectName, message string) (string, error) {
-	return w.bgPool.SubmitPlan(ctx, projectName, message)
-}
-
-// ExecutePlan runs the previously created plan.
-func (w *Worker) ExecutePlan(ctx context.Context, projectName string) (string, error) {
-	return w.bgPool.ExecutePlan(ctx, projectName)
-}
-
-// CancelPlan discards the active plan.
-func (w *Worker) CancelPlan(projectName string) bool {
-	return w.bgPool.CancelPlan(projectName)
-}
-
-// GetPlan returns the active plan for a project.
-func (w *Worker) GetPlan(projectName string) *PlanState {
-	return w.bgPool.GetPlan(projectName)
-}
-
 // ResolveBackgroundApproval resolves a pending background task approval.
 func (w *Worker) ResolveBackgroundApproval(id string, approved bool) {
 	w.bgPool.ResolveApproval(id, approved)

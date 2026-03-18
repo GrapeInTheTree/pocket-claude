@@ -40,7 +40,7 @@ Think of it as SSH-ing into Claude Code, but through Telegram.
 - **Multi-Project Support** — Switch between repos at runtime via `/project`, search for git repos with `/project search`, each with isolated sessions and cost tracking
 - **Background Tasks** — Run long tasks in parallel via `/bg` while continuing to chat. Up to 3 concurrent slots with independent sessions, permissions, and cost tracking
 - **Ralph Loop** — Iterative autonomous execution via `/ralph`. Claude repeats a task across iterations, seeing its previous work each time. Auto-completes or stops on safety limits
-- **Plan Mode** — Two-phase execution via `/plan`. Claude analyzes with read-only tools first, you review the plan, then execute on approval
+- **Plan Mode** — `/plan` asks Claude to analyze and plan without executing. Review, modify via conversation, then say "execute" when ready
 - **Usage Tracking** — Per-project messages and API-equivalent cost via `/usage` and `/project info`
 - **Queue Notifications** — "Queued (#N)" when worker is busy with another request
 - **Structured Logging** — Logs to both stdout and file with timestamps and levels
@@ -125,7 +125,7 @@ go build -o pocket-claude ./cmd/pocket-claude/
 ### Test
 
 ```bash
-make test              # run all tests (68 cases)
+make test              # run all tests (65 cases)
 make test-race         # with race detector
 make ci                # full CI pipeline locally (fmt + vet + build + test)
 ```
@@ -187,9 +187,7 @@ retry - Force retry error messages
 | `/ralph <msg> --max <N>` | Set max iterations (default 5) |
 | `/ralph status` | Show running loops with iteration progress |
 | `/ralph cancel <id>` | Cancel a loop |
-| `/plan <message>` | Create a plan (read-only analysis) |
-| `/plan execute` | Execute the active plan |
-| `/plan show` / `/plan cancel` | Review or discard plan |
+| `/plan <message>` | Plan first, execute on approval |
 | `/cancel` | Cancel the currently processing foreground message |
 | `/usage` | Show API-equivalent cost and message count (per project) |
 | `/status` | Show message queue status (+ background task count) |
@@ -367,24 +365,20 @@ Safety limits: max 20 iterations, $1.00 cost limit, stall detection (3 iteration
 
 ### Plan Mode
 
-Two-phase execution: Claude first analyzes with read-only tools, then executes on your approval.
+Ask Claude to plan before executing. Runs in your main session, so you can review and modify naturally.
 
 ```
 /plan add authentication to the API
-  📋 Planning... (read-only analysis)
-
-  📋 Plan Ready
-  📂 my-app
-
+  Claude: Here's my plan:
   1. Create middleware/auth.go with JWT verification
   2. Add token validation in router.go
   3. Write tests in auth_test.go
 
-  /plan execute — Run this plan
-  /plan cancel — Discard
+You: "3번을 OAuth로 바꿔줘"           <-- natural conversation
+  Claude: Updated plan: ...
 
-/plan execute
-  🚀 Executing plan... (resumes planning session with full tools)
+You: "좋아 실행해"                     <-- Claude remembers the plan
+  Claude: Done! Created 3 files...
 ```
 
 ### Permission System
@@ -445,7 +439,6 @@ pocket-claude/
 |       +-- approval.go          # Permission flow, tool name formatting
 |       +-- background.go        # Background task pool (3 concurrent slots)
 |       +-- ralph.go             # Ralph iterative loop
-|       +-- plan.go              # Plan mode (read-only → execute)
 +-- .github/
 |   +-- workflows/
 |       +-- ci.yml               # GitHub Actions: build, vet, fmt, test -race

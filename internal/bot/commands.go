@@ -77,9 +77,7 @@ func (b *Bot) cmdHelp() {
 		"/ralph `<msg>` --max `<N>` — Set max iterations\n" +
 		"/ralph status / cancel `<id>`\n\n" +
 		"*Plan Mode:*\n" +
-		"/plan `<message>` — Create plan (read-only)\n" +
-		"/plan execute — Run the plan\n" +
-		"/plan show / cancel\n\n" +
+		"/plan `<message>` — Plan first, execute on approval\n\n" +
 		"*Queue:*\n" +
 		"/status — Message queue status\n" +
 		"/usage — Token cost tracking\n" +
@@ -710,56 +708,41 @@ func (b *Bot) cmdPlan(msg *tgbotapi.Message) {
 		return
 	}
 
-	args := strings.TrimSpace(msg.CommandArguments())
-
-	if args == "" {
+	text := strings.TrimSpace(msg.CommandArguments())
+	if text == "" {
 		b.sendMarkdown(
 			"📋 *Plan Mode*\n\n" +
-				"`/plan <message>` — Create a plan (read-only)\n" +
-				"`/plan execute` — Execute the active plan\n" +
-				"`/plan show` — Show current plan\n" +
-				"`/plan cancel` — Discard active plan\n\n" +
-				"Claude analyzes first, then executes on your approval.")
+				"`/plan <message>` — Ask Claude to plan first\n\n" +
+				"Claude will analyze and create a plan without executing.\n" +
+				"Then you can review, modify, and say \"execute\" naturally.")
 		return
 	}
 
-	projectName := b.worker.ActiveProject()
+	var projectName string
+	if b.worker != nil {
+		projectName = b.worker.ActiveProject()
+	}
 
-	if args == "execute" {
-		taskID, err := b.worker.ExecutePlan(context.Background(), projectName)
-		if err != nil {
-			b.sendMessage("Failed: " + err.Error())
-			return
-		}
-		b.sendMessage(fmt.Sprintf("🚀 Executing plan...\n🆔 %s\n📂 %s", taskID, projectName))
+	planPrompt := "[Plan mode: Create a detailed implementation plan for the following task. " +
+		"Analyze the codebase and outline specific steps with file paths. " +
+		"Do NOT execute anything yet — only plan. " +
+		"Wait for my approval before making any changes.] " + text
+
+	inboxMsg := store.InboxMessage{
+		ID:                fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
+		Text:              planPrompt,
+		Status:            store.StatusPending,
+		Timestamp:         time.Now().UTC().Format(time.RFC3339),
+		TelegramMessageID: msg.MessageID,
+		Project:           projectName,
+	}
+
+	if err := b.store.AppendToInbox(inboxMsg); err != nil {
+		b.logger.Error("Failed to save plan", "error", err)
 		return
 	}
 
-	if args == "cancel" {
-		if b.worker.CancelPlan(projectName) {
-			b.sendMessage("🗑 Plan discarded.")
-		} else {
-			b.sendMessage("No active plan to cancel.")
-		}
-		return
+	if b.worker != nil {
+		b.worker.Enqueue(inboxMsg)
 	}
-
-	if args == "show" {
-		plan := b.worker.GetPlan(projectName)
-		if plan == nil {
-			b.sendMessage("No active plan. Use /plan <message> to create one.")
-			return
-		}
-		b.sendMessage(fmt.Sprintf("📋 Active Plan\n📂 %s\n\n%s\n\n/plan execute — Run this plan\n/plan cancel — Discard", projectName, plan.PlanText))
-		return
-	}
-
-	// /plan <message> — create plan
-	taskID, err := b.worker.CreatePlan(context.Background(), projectName, args)
-	if err != nil {
-		b.sendMessage("❌ " + err.Error())
-		return
-	}
-	b.sendMessage(fmt.Sprintf("📋 Planning...\n🆔 %s\n📂 %s\n💬 %s",
-		taskID, projectName, worker.Truncate(args, 60)))
 }

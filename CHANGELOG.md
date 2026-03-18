@@ -26,15 +26,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   - Completion detection: no tool usage or `RALPH_DONE` signal
   - Safety: stall detection (3 iterations without progress), cost limit ($1.00 default), max iteration cap
   - Progress updates sent after each iteration with cost tracking
-- **Plan Mode** (`/plan`): Two-phase execution — Claude analyzes with read-only tools first, then executes on approval
-  - `/plan <message>` — create plan (restricted to Read, Glob, Grep, WebSearch, WebFetch)
-  - `/plan execute` — execute the plan (resumes planning session with full tool access)
-  - `/plan show` — review current plan
-  - `/plan cancel` — discard plan
-  - Plans stored per-project, plan session persisted for seamless resume
+- **Plan Mode** (`/plan`): Claude analyzes and plans in the main session without executing. User reviews, modifies naturally via conversation, then says "execute" when ready. No separate bg session — full conversation context preserved
 - **GitHub Actions CI** (`.github/workflows/ci.yml`): automated build, vet, gofmt check, test with race detector on push/PR to main
 - **Makefile**: `make build`, `make test`, `make test-race`, `make vet`, `make fmt`, `make fmt-check`, `make ci` (full local pipeline), `make run`, `make clean`
-- **Test Suite**: 68 test cases across 6 packages, all passing with `-race`
+- **Test Suite**: 65 test cases across 6 packages, all passing with `-race`
   - `store`: CRUD, stats, clear, outbox, message age
   - `claude`: stream JSON parsing, permission denials, UTF-8 truncation
   - `project`: add/remove/switch/rename, background executor, usage tracking, persistence across reloads

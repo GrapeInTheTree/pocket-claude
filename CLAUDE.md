@@ -56,19 +56,17 @@ internal/
   worker/approval.go                 # Permission approval flow, tool name formatting, UTF-8 safe truncation
   worker/background.go               # Background task pool: 3 concurrent slots, ephemeral executors, independent approval
   worker/ralph.go                    # Ralph iterative loop: auto-repeat until completion with safety limits
-  worker/plan.go                     # Plan mode: read-only analysis → session resume → full execution
   worker/approval_test.go            # Truncate UTF-8, EscapeMD, FormatToolName, permission message tests
   worker/worker_test.go              # Tool summary, error classification tests
   worker/background_test.go          # Pool: slots, cancel, cleanup, status, approval, concurrency tests
   worker/ralph_test.go               # Ralph completion detection, argument parsing tests
-  worker/plan_test.go                # Plan state storage, per-project plans, execute without plan tests
 ```
 
 ## Build & Run
 
 ```bash
 make build          # or: go build -o pocket-claude ./cmd/pocket-claude/
-make test           # or: go test ./...           (68 cases)
+make test           # or: go test ./...           (65 cases)
 make test-race      # or: go test -race ./...     (with race detector)
 make vet            # or: go vet ./...
 make fmt            # or: gofmt -w .
