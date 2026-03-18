@@ -50,15 +50,54 @@ func (b *Bot) SetWorker(w *worker.Worker) {
 	b.worker = w
 }
 
+// telegramMaxLength is the maximum message length allowed by Telegram API.
+const telegramMaxLength = 4096
+
 // SendMessage sends a plain text message to the configured chat.
+// Messages longer than 4096 characters are automatically split into multiple messages.
 func (b *Bot) SendMessage(text string) error {
 	text = strings.ToValidUTF8(text, "")
-	msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, text)
-	_, err := b.api.Send(msg)
-	if err != nil {
-		b.logger.Error("SendMessage failed", "error", err)
+
+	chunks := splitMessage(text, telegramMaxLength)
+	for i, chunk := range chunks {
+		msg := tgbotapi.NewMessage(b.cfg.TelegramChatID, chunk)
+		if _, err := b.api.Send(msg); err != nil {
+			b.logger.Error("SendMessage failed", "error", err, "chunk", i+1, "total", len(chunks))
+			return err
+		}
 	}
-	return err
+	return nil
+}
+
+// splitMessage splits text into chunks that fit within maxLen runes.
+// Prefers splitting at newlines, falls back to rune boundary.
+func splitMessage(text string, maxLen int) []string {
+	runes := []rune(text)
+	if len(runes) <= maxLen {
+		return []string{text}
+	}
+
+	var chunks []string
+	for len(runes) > 0 {
+		if len(runes) <= maxLen {
+			chunks = append(chunks, string(runes))
+			break
+		}
+
+		// Find the best split point: last newline within maxLen
+		chunk := runes[:maxLen]
+		splitAt := maxLen
+		for i := len(chunk) - 1; i >= maxLen*3/4; i-- {
+			if chunk[i] == '\n' {
+				splitAt = i + 1 // include the newline in current chunk
+				break
+			}
+		}
+
+		chunks = append(chunks, string(runes[:splitAt]))
+		runes = runes[splitAt:]
+	}
+	return chunks
 }
 
 // SendTyping sends a "typing..." indicator to the chat.
