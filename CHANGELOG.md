@@ -6,27 +6,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- **Background Tasks** (`/bg`): Run up to 3 concurrent tasks in the background while continuing to chat
-  - `/bg <message>` — run in current project
-  - `/bg <project> <message>` — run in specific project without switching
-  - `/bg status` — show running tasks with elapsed time and slot usage
-  - `/bg cancel <id>` — cancel a specific task
-  - Each task gets an ephemeral Executor with independent session and approval flow
-  - Background approval callbacks routed by `bg_` ID prefix (no collision with foreground `msg_` prefix)
-  - Typing indicators per background task
-  - Atomic task ID counter prevents millisecond collisions
-  - Shutdown-safe: `closed` flag rejects submissions after `CancelAll`, `Wait` ensures goroutine cleanup
-  - Completed tasks auto-cleaned after 30 minutes
-  - `/bg inject <id>` — merge completed task results into main session as `/btw` context note (truncated to 4000 runes). Enables "independent analysis → selective context merge" workflow unique to Pocket Claude
-- **Ralph — Iterative Autonomous Loop** (`/ralph`): Claude repeats a task across multiple iterations, seeing its previous work each time via `--resume`
-  - `/ralph <message>` — start auto-loop (default 5 iterations)
+- **Research** (`/research`, formerly `/bg`): Read-only background analysis restricted to safe tools (Read, Glob, Grep, WebSearch, WebFetch)
+  - `/research <message>` — analyze in background (read-only, no file modifications)
+  - `/research <project> <message>` — in specific project
+  - `/research inject <id>` — merge results into main session as context note
+  - `/research status` / `cancel <id>`
+  - Atomic task ID counter, typing indicators, 30-minute auto-cleanup
+- **Ralph — Iterative Autonomous Loop** (`/ralph`): Claude repeats a task across multiple iterations in an isolated git worktree
+  - `/ralph <message>` — start auto-loop in worktree (default 5 iterations)
   - `/ralph <message> --max <N>` — set max iterations (1-20)
-  - `/ralph status` — show running loops with iteration progress
-  - `/ralph cancel <id>` — cancel a loop
+  - `/ralph status` / `cancel <id>`
+  - Auto-creates git worktree on first iteration via `--worktree` flag; branch persists after completion
   - Completion detection: no tool usage or `RALPH_DONE` signal
   - Safety: stall detection (3 iterations without progress), cost limit ($1.00 default), max iteration cap
-  - Progress updates sent after each iteration with cost tracking
-- **Plan Mode** (`/plan`): Claude analyzes and plans in the main session without executing. User reviews, modifies naturally via conversation, then says "execute" when ready. No separate bg session — full conversation context preserved
+  - Progress updates with iteration count, cost, and branch info
+- **Plan Mode** (`/plan`): Claude analyzes and plans in the main session without executing. User reviews, modifies naturally via conversation, then says "execute" when ready
 - **GitHub Actions CI** (`.github/workflows/ci.yml`): automated build, vet, gofmt check, test with race detector on push/PR to main
 - **Makefile**: `make build`, `make test`, `make test-race`, `make vet`, `make fmt`, `make fmt-check`, `make ci` (full local pipeline), `make run`, `make clean`
 - **Test Suite**: 65 test cases across 6 packages, all passing with `-race`
@@ -47,18 +41,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `/project` now shows available subcommands (info, add, search, rename, remove) alongside the project keyboard
 
 ### Fixed
-- **Long message auto-split**: Messages exceeding Telegram's 4096-char limit now automatically split into multiple messages. Prefers newline boundaries for natural breaks. Fixes "Bad Request: message is too long" outbox retry loops
-- **UTF-8 Truncation**: `Truncate()`, `safeTruncate()`, and `truncate()` now operate on runes instead of bytes — Korean, emoji, and CJK text no longer produces invalid UTF-8 when truncated
+- **Long message auto-split**: Messages exceeding Telegram's 4096-char limit now automatically split into multiple messages. Prefers newline boundaries for natural breaks
+- **Callback auth**: Chat ID validation added to callback handler — prevents unauthorized permission approvals
+- **FormatToolName MCP parsing**: Correctly extracts service name from namespace (e.g., "claude\_ai\_Slack" → "Slack"). Slack/Notion icons now display properly
+- **Message ID collisions**: Foreground message IDs now use atomic counter (same as background tasks)
+- **UTF-8 Truncation**: `Truncate()`, `safeTruncate()`, and `truncate()` now operate on runes instead of bytes
 - Trailing comma in `strings.Join()` call in `buildToolSummary`
 
 ### Changed
+- **`/bg` renamed to `/research`**: Read-only tools only (Read, Glob, Grep, WebSearch, WebFetch). File modifications require `/ralph` instead
+- **`/ralph` now uses git worktree**: All iterations run in an isolated branch via `--worktree` flag. Main codebase protected
+- `interface{}` → `any` (Go 1.18+ canonical alias)
+- `.gitignore` expanded: `.claude/`, `.DS_Store`, organized sections
+
 - Renamed project from `claude-cowork-telegram` to `pocket-claude`
 - Go module path: `github.com/GrapeInTheTree/pocket-claude`
 - Binary: `pocket-claude`
-- Default `MAX_RETRY_COUNT`: 3 → 2
-- Default `CLAUDE_TIMEOUT_SECONDS`: 120 → 600 (10 min)
+- Default `CLAUDE_TIMEOUT_SECONDS`: 120 → 1200 (20 min)
 - `Worker.Stop()` now cancels and waits for background tasks before stopping
-- Approval callback routing in `bot.go` now checks `bg_` prefix for background task approvals
+- Approval callback routing checks `bg_` prefix for background task approvals
 
 ## [1.1.0] - 2026-03-16
 
