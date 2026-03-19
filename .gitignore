@@ -1,11 +1,22 @@
+# Secrets
 .env
+
+# Runtime data
 bot.log
 bot.pid
 *.lock
 inbox.json
 outbox.json
 projects.json
+
+# Build output
 /pocket-claude
+
+# Claude Code session data
+.claude/
+
+# macOS
+.DS_Store
 
 # Skill eval test (isolated experiment - no impact on project)
 skill-eval-test/

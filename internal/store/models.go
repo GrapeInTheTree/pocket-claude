@@ -74,6 +74,6 @@ type CLIResult struct {
 }
 
 type PermissionDenial struct {
-	ToolName  string                 `json:"tool_name"`
-	ToolInput map[string]interface{} `json:"tool_input,omitempty"`
+	ToolName  string         `json:"tool_name"`
+	ToolInput map[string]any `json:"tool_input,omitempty"`
 }

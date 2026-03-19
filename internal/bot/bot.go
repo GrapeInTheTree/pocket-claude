@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/GrapeInTheTree/pocket-claude/internal/config"
@@ -16,6 +17,13 @@ import (
 
 // maxConcurrentCallbacks limits goroutine spawning for callback handlers.
 const maxConcurrentCallbacks = 10
+
+// msgCounter provides unique message IDs without millisecond collisions.
+var msgCounter atomic.Int64
+
+func init() {
+	msgCounter.Store(time.Now().UnixMilli())
+}
 
 type Bot struct {
 	api    *tgbotapi.BotAPI
@@ -263,7 +271,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	}
 
 	inboxMsg := store.InboxMessage{
-		ID:                fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
+		ID:                fmt.Sprintf("msg_%d", msgCounter.Add(1)),
 		Text:              text,
 		Status:            store.StatusPending,
 		Timestamp:         time.Now().UTC().Format(time.RFC3339),
@@ -283,6 +291,11 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 }
 
 func (b *Bot) handleCallback(cq *tgbotapi.CallbackQuery) {
+	// Security: verify callback is from authorized chat
+	if cq.Message != nil && cq.Message.Chat.ID != b.cfg.TelegramChatID {
+		return
+	}
+
 	data := cq.Data
 	parts := strings.SplitN(data, ":", 2)
 	if len(parts) != 2 {

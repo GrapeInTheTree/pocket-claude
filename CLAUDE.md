@@ -116,7 +116,7 @@ Each project gets its own `Executor` with independent session, workDir, and addD
 | `INBOX_PATH` | `./inbox.json` | Incoming messages |
 | `OUTBOX_PATH` | `./outbox.json` | Outgoing results |
 | `LOCK_TIMEOUT_MINUTES` | `5` | Stale lock threshold |
-| `MAX_RETRY_COUNT` | `2` | Error retry limit |
+| `MAX_RETRY_COUNT` | `3` | Error retry limit |
 | `OUTBOX_POLL_INTERVAL_SECONDS` | `10` | Outbox poll interval |
 | `LOG_FILE` | `./bot.log` | Log file path |
 | `MESSAGE_TTL_MINUTES` | `10` | Message expiry time |

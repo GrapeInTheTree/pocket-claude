@@ -135,12 +135,26 @@ func extractToolDetail(d store.PermissionDenial) string {
 }
 
 // FormatToolName converts internal tool names to readable labels.
+// MCP tool names follow the pattern: mcp__<namespace>__<action>
+// e.g., mcp__claude_ai_Slack__slack_send_message → 💬 Slack → Send Message
 func FormatToolName(raw string) string {
 	if strings.HasPrefix(raw, "mcp__") {
 		parts := strings.Split(raw, "__")
 		if len(parts) >= 3 {
-			service := parts[2]
+			// Extract service name from namespace (e.g., "claude_ai_Slack" → "Slack")
+			namespace := parts[1]
+			service := namespace
+			if idx := strings.LastIndex(namespace, "_"); idx >= 0 {
+				service = namespace[idx+1:]
+			}
+
+			// Extract and format action (e.g., "slack_send_message" → "Send Message")
 			action := parts[len(parts)-1]
+			// Remove service prefix from action if present (e.g., "slack_send_message" → "send_message")
+			serviceLower := strings.ToLower(service)
+			if strings.HasPrefix(action, serviceLower+"_") {
+				action = action[len(serviceLower)+1:]
+			}
 			action = strings.ReplaceAll(action, "_", " ")
 			words := strings.Fields(action)
 			for i, w := range words {

@@ -100,7 +100,7 @@ cp .env.example .env
 | `INBOX_PATH` | `./inbox.json` | Incoming message store |
 | `OUTBOX_PATH` | `./outbox.json` | Outgoing result store |
 | `LOCK_TIMEOUT_MINUTES` | `5` | Stale lock detection threshold |
-| `MAX_RETRY_COUNT` | `2` | Max retries for failed messages |
+| `MAX_RETRY_COUNT` | `3` | Max retries for failed messages |
 | `OUTBOX_POLL_INTERVAL_SECONDS` | `10` | Outbox polling interval |
 | `LOG_FILE` | `./bot.log` | Log file path |
 | `MESSAGE_TTL_MINUTES` | `10` | Auto-expire messages older than this |

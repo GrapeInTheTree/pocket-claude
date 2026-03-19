@@ -111,7 +111,7 @@ func (b *Bot) cmdBtw(msg *tgbotapi.Message) {
 	}
 
 	inboxMsg := store.InboxMessage{
-		ID:                fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
+		ID:                fmt.Sprintf("msg_%d", msgCounter.Add(1)),
 		Text:              "[BTW context note, just acknowledge briefly] " + text,
 		Status:            store.StatusPending,
 		Timestamp:         time.Now().UTC().Format(time.RFC3339),
@@ -551,7 +551,7 @@ func (b *Bot) cmdResearch(msg *tgbotapi.Message) {
 		btwText := fmt.Sprintf("[Background task %s result from project %q] %s", taskID, projectName, injected)
 
 		inboxMsg := store.InboxMessage{
-			ID:        fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
+			ID:        fmt.Sprintf("msg_%d", msgCounter.Add(1)),
 			Text:      "[Injected context — do NOT respond to this, just silently remember it for future reference] " + btwText,
 			Status:    store.StatusPending,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -718,10 +718,7 @@ func (b *Bot) cmdPlan(msg *tgbotapi.Message) {
 		return
 	}
 
-	var projectName string
-	if b.worker != nil {
-		projectName = b.worker.ActiveProject()
-	}
+	projectName := b.worker.ActiveProject()
 
 	planPrompt := "[Plan mode: Create a detailed implementation plan for the following task. " +
 		"Analyze the codebase and outline specific steps with file paths. " +
@@ -729,7 +726,7 @@ func (b *Bot) cmdPlan(msg *tgbotapi.Message) {
 		"Wait for my approval before making any changes.] " + text
 
 	inboxMsg := store.InboxMessage{
-		ID:                fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
+		ID:                fmt.Sprintf("msg_%d", msgCounter.Add(1)),
 		Text:              planPrompt,
 		Status:            store.StatusPending,
 		Timestamp:         time.Now().UTC().Format(time.RFC3339),
@@ -742,7 +739,5 @@ func (b *Bot) cmdPlan(msg *tgbotapi.Message) {
 		return
 	}
 
-	if b.worker != nil {
-		b.worker.Enqueue(inboxMsg)
-	}
+	b.worker.Enqueue(inboxMsg)
 }

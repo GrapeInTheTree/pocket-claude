@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/GrapeInTheTree/pocket-claude/internal/store"
@@ -84,14 +85,11 @@ func TestFormatToolName(t *testing.T) {
 		{"Edit", "Edit", "✏️ File Edit"},
 		{"Read", "Read", "📖 File Read"},
 		{"unknown tool", "CustomTool", "🔧 CustomTool"},
-		// mcp__claude_ai_Slack__slack_send_message splits on "__" to:
-		// ["mcp", "claude_ai_Slack", "slack_send_message"]
-		// service=parts[2]="slack_send_message", action=last="slack_send_message"
-		{"MCP Slack", "mcp__claude_ai_Slack__slack_send_message", "🔌 slack_send_message → Slack Send Message"},
-		{"MCP Notion", "mcp__claude_ai_Notion__notion_search", "🔌 notion_search → Notion Search"},
-		// mcp__foo__bar__do_thing splits to ["mcp", "foo", "bar", "do_thing"]
-		// service=parts[2]="bar", action=last="do_thing"
-		{"MCP unknown service", "mcp__foo__bar__do_thing", "🔌 bar → Do Thing"},
+		// mcp__claude_ai_Slack__slack_send_message → service="Slack", action="Send Message"
+		{"MCP Slack", "mcp__claude_ai_Slack__slack_send_message", "💬 Slack → Send Message"},
+		{"MCP Notion", "mcp__claude_ai_Notion__notion_search", "📝 Notion → Search"},
+		// mcp__foo__bar__do_thing → namespace="foo", service="foo", action="do_thing"
+		{"MCP unknown service", "mcp__foo__bar__do_thing", "🔌 foo → Do Thing"},
 	}
 
 	for _, tt := range tests {
@@ -109,11 +107,11 @@ func TestBuildPermissionMessage(t *testing.T) {
 		PermissionDenials: []store.PermissionDenial{
 			{
 				ToolName:  "Bash",
-				ToolInput: map[string]interface{}{"command": "rm -rf /tmp/test"},
+				ToolInput: map[string]any{"command": "rm -rf /tmp/test"},
 			},
 			{
 				ToolName:  "Write",
-				ToolInput: map[string]interface{}{"file_path": "/home/user/file.txt"},
+				ToolInput: map[string]any{"file_path": "/home/user/file.txt"},
 			},
 		},
 		Result: "I need to run a command",
@@ -142,10 +140,10 @@ func TestBuildPermissionMessageDedup(t *testing.T) {
 	// Multiple denials for the same tool should be grouped
 	result := &store.CLIResult{
 		PermissionDenials: []store.PermissionDenial{
-			{ToolName: "Bash", ToolInput: map[string]interface{}{"command": "ls"}},
-			{ToolName: "Bash", ToolInput: map[string]interface{}{"command": "pwd"}},
-			{ToolName: "Bash", ToolInput: map[string]interface{}{"command": "cat file"}},
-			{ToolName: "Bash", ToolInput: map[string]interface{}{"command": "extra"}}, // 4th, should be capped at 3
+			{ToolName: "Bash", ToolInput: map[string]any{"command": "ls"}},
+			{ToolName: "Bash", ToolInput: map[string]any{"command": "pwd"}},
+			{ToolName: "Bash", ToolInput: map[string]any{"command": "cat file"}},
+			{ToolName: "Bash", ToolInput: map[string]any{"command": "extra"}}, // 4th, should be capped at 3
 		},
 	}
 
@@ -172,14 +170,5 @@ func TestSanitizeUTF8(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && containsSubstr(s, substr)
-}
-
-func containsSubstr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, substr)
 }
