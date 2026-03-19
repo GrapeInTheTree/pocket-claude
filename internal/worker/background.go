@@ -10,11 +10,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/GrapeInTheTree/pocket-claude/internal/claude"
 	"github.com/GrapeInTheTree/pocket-claude/internal/project"
 	"github.com/GrapeInTheTree/pocket-claude/internal/store"
 )
 
 const maxBackgroundSlots = 3
+
+// researchAllowedTools restricts /research tasks to read-only tools.
+var researchAllowedTools = []string{"Read", "Glob", "Grep", "WebSearch", "WebFetch"}
 
 // taskCounter provides unique IDs without millisecond collisions.
 var taskCounter atomic.Int64
@@ -147,8 +151,10 @@ func (bp *BackgroundPool) run(ctx context.Context, task *BackgroundTask) {
 	go bp.sendTypingFn(typingCtx)
 	defer stopTyping()
 
-	// Phase 1: Execute with default permissions
-	result, err := exec.Execute(ctx, task.Message, false)
+	// Phase 1: Execute with read-only tools (research mode)
+	result, err := exec.ExecuteWithOptions(ctx, task.Message, claude.ExecuteOptions{
+		AllowedTools: researchAllowedTools,
+	})
 	if err != nil {
 		if ctx.Err() != nil {
 			bp.setTaskState(task.ID, "cancelled", "")
@@ -188,7 +194,10 @@ func (bp *BackgroundPool) run(ctx context.Context, task *BackgroundTask) {
 		defer stopTyping2()
 
 		bp.logger.Info("Background task approved, re-executing", "id", task.ID)
-		result, err = exec.Execute(ctx, task.Message, true)
+		result, err = exec.ExecuteWithOptions(ctx, task.Message, claude.ExecuteOptions{
+			SkipPermissions: true,
+			AllowedTools:    researchAllowedTools,
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				bp.setTaskState(task.ID, "cancelled", "")

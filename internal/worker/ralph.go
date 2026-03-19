@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GrapeInTheTree/pocket-claude/internal/claude"
 	"github.com/GrapeInTheTree/pocket-claude/internal/store"
 )
 
@@ -110,8 +111,12 @@ func (bp *BackgroundPool) runRalph(ctx context.Context, task *BackgroundTask) {
 		typingCtx, stopTyping := context.WithCancel(ctx)
 		go bp.sendTypingFn(typingCtx)
 
-		// Execute
-		result, err := exec.Execute(ctx, prompt, false)
+		// Execute (first iteration creates worktree, subsequent use --resume)
+		opts := claude.ExecuteOptions{}
+		if iteration == 1 {
+			opts.Worktree = task.ID
+		}
+		result, err := exec.ExecuteWithOptions(ctx, prompt, opts)
 		stopTyping()
 
 		if err != nil {
@@ -142,7 +147,11 @@ func (bp *BackgroundPool) runRalph(ctx context.Context, task *BackgroundTask) {
 
 			typingCtx2, stopTyping2 := context.WithCancel(ctx)
 			go bp.sendTypingFn(typingCtx2)
-			result, err = exec.Execute(ctx, prompt, true)
+			approvedOpts := claude.ExecuteOptions{SkipPermissions: true}
+			if iteration == 1 {
+				approvedOpts.Worktree = task.ID
+			}
+			result, err = exec.ExecuteWithOptions(ctx, prompt, approvedOpts)
 			stopTyping2()
 			if err != nil {
 				if ctx.Err() != nil {
@@ -209,8 +218,8 @@ func (bp *BackgroundPool) runRalph(ctx context.Context, task *BackgroundTask) {
 
 		// Progress update (use local copies)
 		summary := Truncate(result.Result, 100)
-		bp.sendFn(fmt.Sprintf("🔁 Ralph [%s] Iteration %d/%d\n📂 %s | 💰 $%.4f\n\n%s",
-			task.ID, iterNum, task.MaxIterations, task.Project, totalCost, summary))
+		bp.sendFn(fmt.Sprintf("🔁 Ralph [%s] Iteration %d/%d\n📂 %s | 🌿 %s | 💰 $%.4f\n\n%s",
+			task.ID, iterNum, task.MaxIterations, task.Project, task.ID, totalCost, summary))
 	}
 
 	// Max iterations reached
@@ -256,7 +265,8 @@ func (bp *BackgroundPool) sendRalphResult(task *BackgroundTask, result *store.CL
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("✅ Ralph Done (%d/%d iterations)\n", currentIter, maxIter))
-	sb.WriteString(fmt.Sprintf("📂 %s | 💰 $%.4f | ⏱ %s\n", task.Project, totalCost, elapsedStr))
+	sb.WriteString(fmt.Sprintf("📂 %s | 🌿 %s\n", task.Project, task.ID))
+	sb.WriteString(fmt.Sprintf("💰 $%.4f | ⏱ %s\n", totalCost, elapsedStr))
 	sb.WriteString(fmt.Sprintf("🏁 %s\n\n", reason))
 	sb.WriteString(response)
 

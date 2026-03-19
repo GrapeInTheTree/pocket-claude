@@ -41,8 +41,8 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.cmdRetry()
 	case "project":
 		b.cmdProject(msg.CommandArguments())
-	case "bg":
-		b.cmdBg(msg)
+	case "research":
+		b.cmdResearch(msg)
 	case "ralph":
 		b.cmdRalph(msg)
 	case "plan":
@@ -68,12 +68,12 @@ func (b *Bot) cmdHelp() {
 		"/project search `<keyword>` — Find git repos to add\n" +
 		"/project rename `<old>` `<new>` — Rename project\n" +
 		"/project remove `<name>` — Remove project\n\n" +
-		"*Background:*\n" +
-		"/bg `<message>` — Run task in background\n" +
-		"/bg inject `<id>` — Inject result into session\n" +
-		"/bg status / cancel `<id>`\n\n" +
-		"*Ralph (Iterative Loop):*\n" +
-		"/ralph `<message>` — Auto-loop until done\n" +
+		"*Research (read-only):*\n" +
+		"/research `<message>` — Background analysis\n" +
+		"/research inject `<id>` — Inject result into session\n" +
+		"/research status / cancel `<id>`\n\n" +
+		"*Ralph (iterative loop + worktree):*\n" +
+		"/ralph `<message>` — Auto-loop in isolated branch\n" +
 		"/ralph `<msg>` --max `<N>` — Set max iterations\n" +
 		"/ralph status / cancel `<id>`\n\n" +
 		"*Plan Mode:*\n" +
@@ -506,7 +506,7 @@ func (b *Bot) cmdProjectSearch(keyword string) {
 	}
 }
 
-func (b *Bot) cmdBg(msg *tgbotapi.Message) {
+func (b *Bot) cmdResearch(msg *tgbotapi.Message) {
 	if b.worker == nil {
 		return
 	}
@@ -516,13 +516,13 @@ func (b *Bot) cmdBg(msg *tgbotapi.Message) {
 	// /bg → help
 	if args == "" {
 		b.sendMarkdown(
-			"🔄 *Background Tasks*\n\n" +
-				"`/bg <message>` — Run in current project\n" +
-				"`/bg <project> <message>` — Run in specific project\n" +
-				"`/bg status` — Show running tasks\n" +
-				"`/bg inject <id>` — Inject result into session\n" +
-				"`/bg cancel <id>` — Cancel a task\n\n" +
-				"Background tasks run independently.\n" +
+			"🔍 *Research (read-only)*\n\n" +
+				"`/research <message>` — Analyze in background\n" +
+				"`/research <project> <message>` — In specific project\n" +
+				"`/research status` — Show running tasks\n" +
+				"`/research inject <id>` — Inject result into session\n" +
+				"`/research cancel <id>` — Cancel a task\n\n" +
+				"Read-only analysis. No file modifications.\n" +
 				"Use inject to bring results into your conversation.")
 		return
 	}
@@ -537,7 +537,7 @@ func (b *Bot) cmdBg(msg *tgbotapi.Message) {
 	if strings.HasPrefix(args, "inject ") {
 		taskID := strings.TrimSpace(strings.TrimPrefix(args, "inject"))
 		if taskID == "" {
-			b.sendMessage("Usage: /bg inject <task_id>")
+			b.sendMessage("Usage: /research inject <task_id>")
 			return
 		}
 		resultText, projectName, err := b.worker.GetBackgroundResult(taskID)
@@ -570,19 +570,19 @@ func (b *Bot) cmdBg(msg *tgbotapi.Message) {
 	if strings.HasPrefix(args, "cancel ") {
 		taskID := strings.TrimSpace(strings.TrimPrefix(args, "cancel"))
 		if taskID == "" {
-			b.sendMessage("Usage: /bg cancel <task_id>")
+			b.sendMessage("Usage: /research cancel <task_id>")
 			return
 		}
 		if err := b.worker.CancelBackground(taskID); err != nil {
 			b.sendMessage("Failed: " + err.Error())
 		} else {
-			b.sendMessage(fmt.Sprintf("🛑 Cancelled background task: %s", taskID))
+			b.sendMessage(fmt.Sprintf("🛑 Cancelled research task: %s", taskID))
 		}
 		return
 	}
 
 	// /bg <project> <message> or /bg <message>
-	projectName, message := b.parseBgArgs(args)
+	projectName, message := b.parseResearchArgs(args)
 
 	taskID, err := b.worker.EnqueueBackground(context.Background(), projectName, message)
 	if err != nil {
@@ -591,16 +591,16 @@ func (b *Bot) cmdBg(msg *tgbotapi.Message) {
 	}
 
 	b.sendMessage(fmt.Sprintf(
-		"🔄 Background task started\n🆔 %s\n📂 Project: %s\n💬 %s\n\nUse /bg status to check progress.",
+		"🔍 Research started\n🆔 %s\n📂 Project: %s\n💬 %s\n\nUse /research status to check progress.",
 		taskID, projectName, worker.Truncate(message, 60)))
 }
 
-// parseBgArgs splits args into project name and message.
+// parseResearchArgs splits args into project name and message.
 // If the first word matches a registered project (and it's different from
 // the active project), it's used as the target project. Otherwise the
 // entire string is the message for the active project.
 // This avoids misrouting when the active project name happens to be the first word.
-func (b *Bot) parseBgArgs(args string) (projectName, message string) {
+func (b *Bot) parseResearchArgs(args string) (projectName, message string) {
 	active := b.worker.ActiveProject()
 	parts := strings.SplitN(args, " ", 2)
 	if len(parts) == 2 {

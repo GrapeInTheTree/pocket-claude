@@ -87,6 +87,7 @@ func NewProjectExecutor(cliPath, workDir string, addDirs []string, timeout time.
 type ExecuteOptions struct {
 	SkipPermissions bool
 	AllowedTools    []string // if non-empty, restricts tool access via --allowedTools
+	Worktree        string   // if non-empty, passes --worktree <name> to CLI
 }
 
 func (e *Executor) Execute(ctx context.Context, userMessage string, skipPermissions bool) (*store.CLIResult, error) {
@@ -119,6 +120,9 @@ func (e *Executor) ExecuteWithOptions(ctx context.Context, userMessage string, o
 	}
 	if len(opts.AllowedTools) > 0 {
 		args = append(args, "--allowedTools", strings.Join(opts.AllowedTools, ","))
+	}
+	if opts.Worktree != "" {
+		args = append(args, "--worktree", opts.Worktree)
 	}
 	if e.systemPrompt != "" {
 		args = append(args, "--system-prompt", e.systemPrompt)
