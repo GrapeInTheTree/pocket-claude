@@ -4,7 +4,7 @@
     <strong>Your personal AI assistant, right in your pocket.</strong>
   </p>
   <p align="center">
-    A Telegram bot that bridges Claude Code CLI with your phone — send messages, photos, or files and get instant AI-powered responses with full MCP tool access.
+    Orchestrate Claude Code from Telegram — parallel research, iterative loops, multi-project workflows.
   </p>
 </p>
 
