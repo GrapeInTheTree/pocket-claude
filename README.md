@@ -71,46 +71,57 @@ Go Bot (local machine, single instance via PID file)
 ### Prerequisites
 
 - [Go](https://go.dev/) 1.23+
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
-- A Telegram bot token from [@BotFather](https://t.me/BotFather)
-- Your Telegram chat ID (use [@userinfobot](https://t.me/userinfobot) to find it)
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated (`claude` command available in your terminal)
+- A Telegram bot token and your chat ID (setup guide below)
 
-### Install
+### 1. Create a Telegram Bot
+
+1. Open Telegram and search for [@BotFather](https://t.me/BotFather)
+2. Send `/newbot` and follow the prompts to name your bot
+3. BotFather will give you a **bot token** like `123456789:ABCdefGHIjklMNOpqrsTUVwxyz` — save this
+
+### 2. Find Your Chat ID
+
+1. Search for [@userinfobot](https://t.me/userinfobot) on Telegram
+2. Send any message to it
+3. It replies with your **chat ID** (a number like `123456789`) — save this
+
+> Only messages from this chat ID will be processed. All others are silently ignored.
+
+### 3. Install & Configure
 
 ```bash
 git clone https://github.com/GrapeInTheTree/pocket-claude.git
 cd pocket-claude
 go mod download
-```
-
-### Configure
-
-```bash
 cp .env.example .env
-# Edit .env with your Telegram token and chat ID
 ```
+
+Edit `.env` with your values:
+```bash
+TELEGRAM_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz   # from BotFather
+TELEGRAM_CHAT_ID=123456789                              # from userinfobot
+```
+
+That's it for the required config. Optional settings:
 
 <details>
-<summary>Environment Variables</summary>
+<summary>All Environment Variables</summary>
 
 | Variable | Default | Description |
 |---|---|---|
 | `TELEGRAM_TOKEN` | *(required)* | Bot token from BotFather |
 | `TELEGRAM_CHAT_ID` | *(required)* | Your chat ID (all others ignored) |
-| `INBOX_PATH` | `./inbox.json` | Incoming message store |
-| `OUTBOX_PATH` | `./outbox.json` | Outgoing result store |
-| `LOCK_TIMEOUT_MINUTES` | `5` | Stale lock detection threshold |
-| `MAX_RETRY_COUNT` | `3` | Max retries for failed messages |
-| `OUTBOX_POLL_INTERVAL_SECONDS` | `10` | Outbox polling interval |
-| `LOG_FILE` | `./bot.log` | Log file path |
-| `MESSAGE_TTL_MINUTES` | `10` | Auto-expire messages older than this |
-| `CLAUDE_CLI_PATH` | `claude` | Claude CLI binary path |
 | `CLAUDE_WORK_DIR` | `.` | Working directory for CLI |
-| `CLAUDE_TIMEOUT_SECONDS` | `1200` | CLI execution timeout (20 min) |
-| `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
 | `CLAUDE_MODEL` | *(none)* | Model override (e.g., `sonnet`, `opus`) |
+| `CLAUDE_SYSTEM_PROMPT` | *(none)* | Custom system prompt |
 | `CLAUDE_ADD_DIRS` | `~` | Extra directories Claude can access |
+| `CLAUDE_TIMEOUT_SECONDS` | `1200` | CLI execution timeout (20 min) |
+| `CLAUDE_CLI_PATH` | `claude` | Claude CLI binary path |
+| `MESSAGE_TTL_MINUTES` | `10` | Auto-expire messages older than this |
+| `MAX_RETRY_COUNT` | `3` | Max retries for failed messages |
 | `WORKER_QUEUE_SIZE` | `100` | Processing queue capacity |
+| `LOG_FILE` | `./bot.log` | Log file path |
 | `PROJECTS_FILE` | `./projects.json` | Project persistence file |
 
 </details>
